@@ -120,7 +120,8 @@ export class PrintScene {
 
     this.mats = {
       done: new THREE.LineBasicMaterial({ vertexColors: true }),
-      ghost: new THREE.LineBasicMaterial({ transparent: true, depthWrite: false }),
+      // il resto del pezzo: scrive la profondità così le linee sovrapposte non si sommano fino al bianco
+      ghost: new THREE.LineBasicMaterial({ transparent: true, depthWrite: true }),
       current: new THREE.LineBasicMaterial(),
     };
     const cone = new THREE.ConeGeometry(2.4, 7, 24);
@@ -136,7 +137,7 @@ export class PrintScene {
     const light = document.documentElement.dataset.theme === 'light';
     const faint = cssColor('--text-faint');
     this.mats.ghost.color.setRGB(...faint.rgb);
-    this.mats.ghost.opacity = light ? 0.05 : 0.06;
+    this.mats.ghost.opacity = light ? 0.16 : 0.14;
     // layer in stampa: più chiaro del pezzo sul fondo scuro, più scuro su quello chiaro
     if (light) this.mats.current.color.setRGB(0.76, 0.25, 0.05);
     else this.mats.current.color.setRGB(1, 0.86, 0.72);
