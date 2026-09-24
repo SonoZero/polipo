@@ -37,7 +37,19 @@ jobs:
             exit 1
           fi
 
-      - name: Compila e pubblica la Release
-        run: npm run release
+      - name: Compila installer e portable
+        run: npm run dist
+
+      # una sola Release con tutti i file: se è electron-builder a pubblicare, installer e
+      # portable vengono caricati in parallelo e a volte nascono due Release con lo stesso tag
+      - name: Pubblica la Release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          gh release create "$GITHUB_REF_NAME" --title "$version" --verify-tag \
+            "dist/SonoPrint-Setup-$version.exe" \
+            "dist/SonoPrint-Setup-$version.exe.blockmap" \
+            "dist/SonoPrint-Portable-$version.exe" \
+            dist/latest.yml

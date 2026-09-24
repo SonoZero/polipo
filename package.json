@@ -15,8 +15,7 @@
     "start": "electron .",
     "server": "node scripts/server.js",
     "test": "node --test \"test/*.test.js\"",
-    "dist": "electron-builder --win nsis portable --publish never",
-    "release": "electron-builder --win nsis portable --publish always"
+    "dist": "electron-builder --win nsis portable --publish never"
   },
   "dependencies": {
     "basic-ftp": "^6.2.1",
