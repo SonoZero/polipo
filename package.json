@@ -1,7 +1,7 @@
 {
   "name": "polipo",
   "productName": "Polipo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Controllo di più stampanti 3D da Windows, in stile OctoPrint",
   "main": "src/main.js",
   "author": "zonozero",
