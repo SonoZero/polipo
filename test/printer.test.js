@@ -136,8 +136,10 @@ test('stampa completa con errori di trasmissione (resend)', async () => {
     const vp = printer.transport.printer;
     await waitFor(() => printer.clearToSend && printer.queue.length === 0, 5000, 'coda vuota');
     vp.record.length = 0;
-    const layers = [];
-    printer.on('update', () => { if (printer.job) layers.push(printer.job.layer); });
+    // registra il layer a ogni commento del file (gli eventi 'update' sono limitati a 4 al secondo)
+    let maxLayer = 0;
+    const jobComment = printer._jobComment.bind(printer);
+    printer._jobComment = (c) => { jobComment(c); maxLayer = Math.max(maxLayer, printer.job.layer); };
     printer.startPrint(file);
     assert.strictEqual(printer.state, 'printing');
     await waitFor(() => printer.lastJob && printer.lastJob.result === 'done', 30000, 'fine stampa');
@@ -147,7 +149,7 @@ test('stampa completa con errori di trasmissione (resend)', async () => {
     const expected = fileCommands(content);
     const executed = vp.record.filter((c) => !/^M105$|^M155/.test(c));
     assert.deepStrictEqual(executed, expected);
-    assert.ok(Math.max(...layers) >= 10, 'il layer corrente deve avanzare');
+    assert.strictEqual(maxLayer, 15, 'il layer corrente deve arrivare all\'ultimo');
   } finally {
     await printer.disconnect();
   }
