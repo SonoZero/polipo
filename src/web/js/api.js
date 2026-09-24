@@ -51,6 +51,7 @@ export const store = {
   temps: {}, // id -> [samples]
   logs: {}, // id -> [entries]
   app: { current: '', status: 'unsupported' }, // versione e stato degli aggiornamenti
+  network: null, // porta in uso e accesso dal telefono
 };
 
 const listeners = new Map(); // evento -> Set(fn)
@@ -109,6 +110,7 @@ function handle(msg) {
       store.history = msg.history;
       store.temps = msg.temps || {};
       if (msg.app) store.app = msg.app;
+      if (msg.network) store.network = msg.network;
       store.ready = true;
       emit('printers');
       emit('files');
@@ -120,6 +122,10 @@ function handle(msg) {
     case 'app':
       store.app = msg.app;
       emit('app');
+      break;
+    case 'network':
+      store.network = msg.network;
+      emit('network');
       break;
     case 'printers':
       setPrinters(msg.printers);

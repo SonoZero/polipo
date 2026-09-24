@@ -35,12 +35,16 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 async function start() {
-  app.setAppUserModelId('it.edoardo.polipo');
+  app.setAppUserModelId('com.zonozero.polipo');
   Menu.setApplicationMenu(null);
 
   updater = new Updater(app);
   server = await startServer({ dataDir: path.join(app.getPath('userData'), 'data'), appInfo: updater });
-  const origin = new URL(server.url).origin;
+
+  // porta cambiata dalle impostazioni: ricarica l'interfaccia al nuovo indirizzo
+  server.events.on('url-changed', (url) => {
+    setTimeout(() => { if (win) win.loadURL(url + '#/settings'); }, 900);
+  });
 
   let notifiedVersion = null;
   updater.on('change', (s) => {
@@ -58,11 +62,11 @@ async function start() {
 
   // webcam e notifiche consentite solo all'interfaccia di Polipo
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
-    const fromUs = (details.requestingUrl || '').startsWith(origin);
+    const fromUs = (details.requestingUrl || '').startsWith(origin());
     callback(fromUs && ['media', 'notifications', 'fullscreen'].includes(permission));
   });
   session.defaultSession.setPermissionCheckHandler((wc, permission, requestingOrigin) => {
-    return requestingOrigin === origin && ['media', 'notifications', 'fullscreen'].includes(permission);
+    return requestingOrigin === origin() && ['media', 'notifications', 'fullscreen'].includes(permission);
   });
 
   server.events.on('notify', (n) => {
@@ -103,13 +107,12 @@ function createWindow() {
   win.loadURL(server.url);
 
   // i link esterni si aprono nel browser, la finestra resta su Polipo
-  const origin = new URL(server.url).origin;
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url) && !url.startsWith(origin)) shell.openExternal(url);
+    if (/^https?:\/\//.test(url) && !url.startsWith(origin())) shell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith(origin)) {
+    if (!url.startsWith(origin())) {
       e.preventDefault();
       if (/^https?:\/\//.test(url)) shell.openExternal(url);
     }
@@ -131,6 +134,11 @@ function createWindow() {
     if (choice === 0) e.preventDefault();
   });
   win.on('closed', () => { win = null; });
+}
+
+/** Origine attuale dell'interfaccia (cambia se si cambia la porta). */
+function origin() {
+  return new URL(server.url).origin;
 }
 
 function updateSleepBlocker() {

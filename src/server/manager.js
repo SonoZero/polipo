@@ -21,7 +21,15 @@ const DEFAULT_SETTINGS = {
   ],
   notifications: true,
   preventSleep: true,
+  port: 5723, // porta dell'interfaccia web / API
+  remote: { enabled: false, key: '' }, // accesso dal telefono (rete locale o VPN)
 };
+
+const DEFAULT_PORT = DEFAULT_SETTINGS.port;
+
+function newRemoteKey() {
+  return crypto.randomBytes(24).toString('base64url');
+}
 
 function defaultPrinterConfig(index) {
   return {
@@ -62,6 +70,10 @@ class PrinterManager extends EventEmitter {
     this.historyPath = path.join(dataDir, 'history.json');
     const saved = readJson(this.configPath, {});
     this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings || {}) };
+    this.settings.port = validPort(this.settings.port) || DEFAULT_PORT;
+    this.settings.remote = { ...DEFAULT_SETTINGS.remote, ...(this.settings.remote || {}) };
+    const needsKey = !this.settings.remote.key;
+    if (needsKey) this.settings.remote.key = newRemoteKey();
     this.history = readJson(this.historyPath, []);
     this.printers = new Map();
     this.order = [];
@@ -71,6 +83,7 @@ class PrinterManager extends EventEmitter {
     this.files.on('changed', () => this.emit('files-changed'));
 
     (saved.printers || []).forEach((cfg, i) => this._createPrinter(sanitizeConfig(cfg, i)));
+    if (needsKey) this._saveConfig();
   }
 
   async init() {
@@ -191,7 +204,29 @@ class PrinterManager extends EventEmitter {
 
   // --- impostazioni ----------------------------------------------------------------
 
+  /** Impostazioni senza la chiave di accesso remoto (quella si legge solo dall'abbinamento locale). */
+  publicSettings() {
+    return { ...this.settings, remote: { enabled: this.settings.remote.enabled } };
+  }
+
+  regenerateRemoteKey() {
+    this.settings.remote = { ...this.settings.remote, key: newRemoteKey() };
+    this._saveConfig();
+    this.emit('remote-key-changed');
+    return this.settings.remote.key;
+  }
+
   updateSettings(patch) {
+    patch = { ...(patch || {}) };
+    if ('port' in patch) {
+      const port = validPort(patch.port);
+      if (!port) throw new Error('La porta deve essere un numero tra 1024 e 65535.');
+      patch.port = port;
+    }
+    // della sezione "remote" si può cambiare solo l'attivazione, mai la chiave
+    patch.remote = 'remote' in patch
+      ? { ...this.settings.remote, enabled: !!(patch.remote && patch.remote.enabled) }
+      : this.settings.remote;
     const next = { ...this.settings, ...patch };
     if (Array.isArray(next.presets)) {
       next.presets = next.presets
@@ -207,7 +242,7 @@ class PrinterManager extends EventEmitter {
     this.settings = next;
     this._saveConfig();
     this.emit('settings-changed');
-    return this.settings;
+    return this.publicSettings();
   }
 
   // --- interni ---------------------------------------------------------------------
@@ -301,6 +336,11 @@ function sanitizeConfig(input, index) {
   c.lastBaudrate = parseInt(c.lastBaudrate, 10) || null;
   for (const k of Object.keys(c)) if (!(k in d)) delete c[k];
   return c;
+}
+
+function validPort(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1024 && n <= 65535 ? n : null;
 }
 
 function clampNum(v, min, max, def) {

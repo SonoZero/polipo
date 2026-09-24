@@ -61,7 +61,8 @@ function renderSidebar() {
   sidebar.appendChild(list);
   sidebar.appendChild(h('div', { class: 'side-footer' },
     updateBanner.el,
-    h('button', { class: 'btn block', onclick: () => openPrinterForm() }, icon('plus'), 'Aggiungi stampante')));
+    h('button', { class: 'btn block', onclick: () => openPrinterForm() }, icon('plus'), 'Aggiungi stampante'),
+    h('div', { class: 'made-by side-made' }, 'made by ', h('b', null, 'zonozero'))));
 }
 
 function updateSidePrinter(p) {

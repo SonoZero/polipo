@@ -4,12 +4,17 @@
 
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { WebSocketServer } = require('ws');
+const QRCode = require('qrcode');
 const { PrinterManager } = require('./manager');
 const { writeJson } = require('./files');
+
+const LOCAL_HOST = '127.0.0.1';
+const ANY_HOST = '0.0.0.0';
 
 const WEB_DIR = path.join(__dirname, '..', 'web');
 const MIME = {
@@ -25,16 +30,18 @@ const MIME = {
 
 async function startServer(options = {}) {
   const dataDir = options.dataDir;
-  const host = options.host || '127.0.0.1';
-  const preferredPort = options.port ?? 5723;
   fs.mkdirSync(dataDir, { recursive: true });
 
   const events = new EventEmitter();
   const manager = new PrinterManager(dataDir);
   // informazioni sull'app e aggiornamenti (forniti da Electron; senza finestra non ci sono)
   const appInfo = options.appInfo || headlessAppInfo();
+  // token della sessione locale: lo conosce solo l'interfaccia servita a questo PC
   const token = crypto.randomBytes(24).toString('hex');
-  let actualPort = preferredPort;
+  // server HTTP in ascolto: { server, port, host }
+  let current = null;
+  let portFallback = false;
+  const failedKeys = new Map(); // ip -> { count, until }
 
   // ---------------------------------------------------------------------------
   // Router API
@@ -142,10 +149,30 @@ async function startServer(options = {}) {
     const active = manager.activePrints();
     if (active.length) throw badRequest(`Aspetta la fine delle stampe in corso (${active.join(', ')}) prima di aggiornare.`);
     return appInfo.install();
+  }, { localOnly: true });
+
+  route('GET', /^\/api\/settings$/, () => manager.publicSettings());
+  route('PUT', /^\/api\/settings$/, async (req, m, res, auth) => {
+    const body = await readJsonBody(req);
+    // porta e accesso remoto si cambiano solo dal PC
+    if (!auth.local) { delete body.port; delete body.remote; }
+    let port = current.port;
+    if ('port' in body) {
+      port = validPort(body.port);
+      if (!port) throw badRequest('La porta deve essere un numero tra 1024 e 65535.');
+      if (port === manager.settings.port && !portFallback) port = current.port; // non cambiata
+    }
+    const host = 'remote' in body ? (body.remote && body.remote.enabled ? ANY_HOST : LOCAL_HOST) : current.host;
+    if (port !== current.port || host !== current.host) await moveListener(port, host);
+    return manager.updateSettings(body);
   });
 
-  route('GET', /^\/api\/settings$/, () => manager.settings);
-  route('PUT', /^\/api\/settings$/, async (req) => manager.updateSettings(await readJsonBody(req)));
+  route('GET', /^\/api\/network$/, () => networkInfo());
+  route('GET', /^\/api\/remote$/, () => pairingInfo(), { localOnly: true });
+  route('POST', /^\/api\/remote\/key$/, () => {
+    manager.regenerateRemoteKey();
+    return pairingInfo();
+  }, { localOnly: true });
   route('GET', /^\/api\/history$/, () => manager.history);
   route('DELETE', /^\/api\/history$/, () => {
     manager.history = [];
@@ -160,43 +187,114 @@ async function startServer(options = {}) {
     return {
       printers: manager.snapshots(),
       files: manager.files.list(),
-      settings: manager.settings,
+      settings: manager.publicSettings(),
       history: manager.history.slice(0, 200),
       temps,
       app: appInfo.getState(),
+      network: networkInfo(),
     };
+  }
+
+  function localUrl(port = current.port) {
+    return `http://127.0.0.1:${port}/`;
+  }
+
+  function networkInfo() {
+    return {
+      port: current.port,
+      configuredPort: manager.settings.port,
+      portFallback,
+      remote: current.host === ANY_HOST,
+      url: localUrl(),
+      hostname: os.hostname(),
+      addresses: current.host === ANY_HOST ? lanAddresses() : [],
+    };
+  }
+
+  async function pairingInfo() {
+    const addresses = lanAddresses();
+    const { enabled, key } = manager.settings.remote;
+    const params = new URLSearchParams({
+      h: addresses.map((a) => a.address).join(','),
+      p: String(current.port),
+      k: key,
+      n: os.hostname(),
+    });
+    const pairingUrl = `polipo://pair?${params.toString()}`;
+    const qrSvg = await QRCode.toString(pairingUrl, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } });
+    return { enabled, key, port: current.port, hostname: os.hostname(), addresses, pairingUrl, qrSvg };
   }
 
   // ---------------------------------------------------------------------------
   // HTTP
 
-  const allowedHost = (h) => {
-    if (!h) return false;
-    const hostOnly = h.replace(/:\d+$/, '').toLowerCase();
-    return ['127.0.0.1', 'localhost', '[::1]'].includes(hostOnly);
-  };
+  /**
+   * Chi sta chiamando?
+   * - local: richiesta dal PC stesso verso localhost (l'interfaccia di Polipo);
+   *   il controllo dell'Host blocca gli attacchi di DNS rebinding;
+   * - tokenOk: interfaccia locale con il token della sessione;
+   * - keyOk: app del telefono (o altro client) con la chiave di accesso remoto.
+   */
+  function authenticate(req, url) {
+    const local = isLoopback(req.socket.remoteAddress) && allowedHost(req.headers.host);
+    const tokenVal = req.headers['x-polipo-token'] || (req.method === 'GET' ? url.searchParams.get('token') : null);
+    const tokenOk = local && !!tokenVal && safeEqual(String(tokenVal), token);
+    const keyVal = req.headers['x-polipo-key'] || (req.method === 'GET' ? url.searchParams.get('key') : null);
+    const { enabled, key } = manager.settings.remote;
+    const keyOk = enabled && !!keyVal && !tokenOk && safeEqual(String(keyVal), key);
+    return { local: tokenOk, tokenOk, keyOk, triedKey: !!keyVal };
+  }
 
-  const server = http.createServer(async (req, res) => {
+  // limita i tentativi con chiavi sbagliate (per indirizzo IP)
+  function isBlocked(ip) {
+    const f = failedKeys.get(ip);
+    return !!(f && f.until > Date.now());
+  }
+  function noteFailure(ip) {
+    const f = failedKeys.get(ip) || { count: 0, until: 0 };
+    f.count++;
+    if (f.count >= 20) { f.until = Date.now() + 10 * 60 * 1000; f.count = 0; }
+    failedKeys.set(ip, f);
+  }
+
+  async function handleRequest(req, res) {
     try {
-      // protezione DNS-rebinding: accetta solo richieste rivolte a localhost
-      if (!allowedHost(req.headers.host)) return sendJson(res, 403, { error: 'Host non consentito.' });
       const url = new URL(req.url, 'http://localhost');
+      const ip = req.socket.remoteAddress;
+      const isApi = url.pathname.startsWith('/api/');
 
-      if (url.pathname.startsWith('/api/')) {
-        // protezione CSRF: ogni chiamata deve avere il token della sessione
-        const t = req.headers['x-polipo-token'] || (req.method === 'GET' ? url.searchParams.get('token') : null);
-        if (!t || !safeEqual(String(t), token)) return sendJson(res, 401, { error: 'Token non valido.' });
+      // CORS solo per le API: servono all'app del telefono quando gira nel browser (sviluppo).
+      // Senza chiave valida la risposta è comunque un 401.
+      if (isApi && req.headers.origin) setCors(res, req.headers.origin);
+      if (req.method === 'OPTIONS') { res.writeHead(isApi ? 204 : 405); return res.end(); }
+
+      const auth = authenticate(req, url);
+
+      if (isApi) {
+        if (isBlocked(ip)) return sendJson(res, 429, { error: 'Troppi tentativi con una chiave sbagliata: riprova tra qualche minuto.' });
+        if (!auth.tokenOk && !auth.keyOk) {
+          if (auth.triedKey) noteFailure(ip);
+          const msg = auth.triedKey
+            ? (manager.settings.remote.enabled ? 'Chiave di accesso non valida: abbina di nuovo il telefono.' : 'L\'accesso dal telefono è disattivato in Polipo.')
+            : 'Token non valido.';
+          return sendJson(res, 401, { error: msg });
+        }
         for (const r of routes) {
           if (r.method !== req.method) continue;
           const m = r.pattern.exec(url.pathname);
           if (!m) continue;
-          const result = await r.handler(req, r.options.raw ? url : m, res);
+          if (r.options.localOnly && !auth.local) return sendJson(res, 403, { error: 'Questa operazione si può fare solo dal PC.' });
+          const result = await r.handler(req, r.options.raw ? url : m, res, auth);
           if (result === STREAMED) return;
           return sendJson(res, 200, result === undefined ? { ok: true } : result);
         }
         return sendJson(res, 404, { error: 'Endpoint non trovato.' });
       }
 
+      // l'interfaccia web si apre solo dal PC (dal telefono si usa l'app)
+      if (!(isLoopback(ip) && allowedHost(req.headers.host))) {
+        return sendJson(res, 403, { error: 'L\'interfaccia di Polipo si apre solo sul PC. Dal telefono usa l\'app Polipo.' });
+      }
       if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Metodo non consentito.' });
       return serveStatic(url.pathname, res);
     } catch (err) {
@@ -204,7 +302,8 @@ async function startServer(options = {}) {
       if (!res.headersSent) sendJson(res, status, { error: err.message || String(err) });
       else res.end();
     }
-  });
+  }
+
   function serveStatic(pathname, res) {
     let rel = decodeURIComponent(pathname);
     if (rel === '/' || rel === '') rel = '/index.html';
@@ -230,16 +329,22 @@ async function startServer(options = {}) {
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set();
 
-  server.on('upgrade', (req, socket, head) => {
+  function handleUpgrade(req, socket, head) {
     const url = new URL(req.url, 'http://localhost');
+    const ip = req.socket.remoteAddress;
+    const auth = authenticate(req, url);
+    // l'interfaccia locale deve anche provenire da una pagina di localhost
     const origin = req.headers.origin;
     const originOk = !origin || allowedHost(origin.replace(/^https?:\/\//, ''));
-    if (url.pathname !== '/ws' || !allowedHost(req.headers.host) || !originOk || !safeEqual(url.searchParams.get('token') || '', token)) {
+    const allowed = url.pathname === '/ws' && !isBlocked(ip) && ((auth.tokenOk && originOk) || auth.keyOk);
+    if (!allowed) {
+      if (auth.triedKey) noteFailure(ip);
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.remote = !auth.tokenOk;
       ws.subs = new Set();
       clients.add(ws);
       ws.on('close', () => clients.delete(ws));
@@ -256,7 +361,11 @@ async function startServer(options = {}) {
       });
       send(ws, { type: 'hello', ...fullState() });
     });
-  });
+  }
+
+  function dropRemoteClients() {
+    for (const ws of clients) if (ws.remote) ws.terminate();
+  }
 
   function send(ws, obj) {
     if (ws.readyState === 1) ws.send(JSON.stringify(obj));
@@ -269,7 +378,12 @@ async function startServer(options = {}) {
   manager.on('printer-update', (p) => broadcast({ type: 'printer', printer: p.snapshot() }));
   manager.on('printers-changed', () => broadcast({ type: 'printers', printers: manager.snapshots() }));
   manager.on('temp', (id, sample) => broadcast({ type: 'temp', id, sample }));
-  manager.on('settings-changed', () => broadcast({ type: 'settings', settings: manager.settings }));
+  manager.on('settings-changed', () => {
+    broadcast({ type: 'settings', settings: manager.publicSettings() });
+    if (!manager.settings.remote.enabled) dropRemoteClients();
+  });
+  // con una chiave nuova i telefoni abbinati prima devono riabbinarsi
+  manager.on('remote-key-changed', dropRemoteClients);
   manager.on('history-changed', () => broadcast({ type: 'history', history: manager.history.slice(0, 200) }));
   manager.on('notify', (n) => {
     broadcast({ type: 'notify', ...n });
@@ -305,12 +419,87 @@ async function startServer(options = {}) {
   // ---------------------------------------------------------------------------
   // Avvio
 
+  function bind(port, host) {
+    return new Promise((resolve, reject) => {
+      const s = http.createServer(handleRequest);
+      s.on('upgrade', handleUpgrade);
+      s.once('error', reject);
+      s.listen(port, host, () => {
+        s.removeListener('error', reject);
+        s.on('error', () => {});
+        resolve(s);
+      });
+    });
+  }
+
+  function closeServer(s) {
+    return new Promise((resolve) => {
+      s.close(() => resolve());
+      if (s.closeAllConnections) s.closeAllConnections();
+      setTimeout(resolve, 1000);
+    });
+  }
+
+  /**
+   * Sposta il server su un'altra porta o interfaccia senza fermare le stampanti.
+   * Con una porta nuova la apre prima di chiudere la vecchia (se è occupata non cambia nulla);
+   * la vecchia si chiude poco dopo, così la risposta a questa richiesta arriva comunque.
+   */
+  async function moveListener(port, host) {
+    const old = current;
+    const portChanged = port !== old.port;
+    if (portChanged) {
+      let s;
+      try {
+        s = await bind(port, host);
+      } catch (err) {
+        throw badRequest(err.code === 'EADDRINUSE'
+          ? `La porta ${port} è già usata da un altro programma. Scegline un'altra.`
+          : `Impossibile usare la porta ${port}: ${err.message}`);
+      }
+      current = { server: s, port, host };
+      portFallback = false;
+      // i client ricevono la nuova porta prima che la vecchia venga chiusa
+      broadcast({ type: 'network', network: networkInfo() });
+      setTimeout(async () => {
+        for (const ws of clients) ws.terminate();
+        await closeServer(old.server);
+      }, 700);
+    } else {
+      // stessa porta ma da aprire/chiudere alla rete: bisogna chiudere prima di riaprire
+      current = { ...old, host };
+      setTimeout(async () => {
+        await closeServer(old.server);
+        try {
+          current = { server: await bind(port, host), port, host };
+        } catch (err) {
+          current = { server: await bind(port, old.host), port, host: old.host };
+          events.emit('notify', { level: 'error', title: 'Polipo', message: 'Impossibile aprire Polipo alla rete: ' + err.message });
+        }
+        if (current.host === LOCAL_HOST) dropRemoteClients();
+        broadcast({ type: 'network', network: networkInfo() });
+      }, 400);
+    }
+    if (portChanged) events.emit('url-changed', localUrl(port));
+  }
+
   await manager.init();
-  actualPort = await listen(server, preferredPort, host);
+  const startHost = manager.settings.remote.enabled ? ANY_HOST : LOCAL_HOST;
+  const startPort = options.port ?? manager.settings.port;
+  try {
+    const s = await bind(startPort, startHost);
+    current = { server: s, port: s.address().port, host: startHost };
+  } catch (err) {
+    if (err.code !== 'EADDRINUSE') throw err;
+    // porta occupata (es. un'altra copia di Polipo): usa una porta libera e avvisa nelle impostazioni
+    const s = await bind(0, startHost);
+    current = { server: s, port: s.address().port, host: startHost };
+    portFallback = true;
+  }
 
   return {
-    url: `http://127.0.0.1:${actualPort}/`,
-    port: actualPort,
+    get url() { return localUrl(); },
+    get port() { return current.port; },
     token,
     manager,
     events,
@@ -318,7 +507,7 @@ async function startServer(options = {}) {
       clearInterval(logTimer);
       for (const ws of clients) ws.terminate();
       await manager.shutdown();
-      await new Promise((resolve) => server.close(() => resolve()));
+      await closeServer(current.server);
     },
   };
 }
@@ -339,20 +528,48 @@ function headlessAppInfo() {
   return info;
 }
 
-function listen(server, port, host) {
-  return new Promise((resolve, reject) => {
-    const onError = (err) => {
-      if (err.code === 'EADDRINUSE' && port !== 0) {
-        server.removeListener('error', onError);
-        listen(server, 0, host).then(resolve, reject);
-      } else reject(err);
-    };
-    server.once('error', onError);
-    server.listen(port, host, () => {
-      server.removeListener('error', onError);
-      resolve(server.address().port);
-    });
-  });
+function allowedHost(h) {
+  if (!h) return false;
+  const hostOnly = h.replace(/:\d+$/, '').toLowerCase();
+  return ['127.0.0.1', 'localhost', '[::1]'].includes(hostOnly);
+}
+
+function isLoopback(addr) {
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+function validPort(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1024 && n <= 65535 ? n : null;
+}
+
+function setCors(res, origin) {
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'X-Polipo-Key, Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+  res.setHeader('Access-Control-Max-Age', '600');
+}
+
+// schede di rete virtuali (macchine virtuali, WSL, Docker) che il telefono non può raggiungere
+const VIRTUAL_NICS = /vEthernet|VirtualBox|VMware|Hyper-V|WSL|Docker|Loopback/i;
+const KIND_ORDER = { lan: 0, tailscale: 1, vpn: 2 };
+
+/** Indirizzi IPv4 del PC raggiungibili dal telefono (Wi-Fi/Ethernet, Tailscale, altre VPN). */
+function lanAddresses() {
+  const out = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    if (VIRTUAL_NICS.test(name)) continue;
+    for (const a of list || []) {
+      if (a.family !== 'IPv4' || a.internal || a.address.startsWith('169.254.')) continue;
+      const [x, y] = a.address.split('.').map(Number);
+      const cgnat = x === 100 && y >= 64 && y <= 127; // usato da Tailscale ma anche da altre VPN
+      const kind = /tailscale/i.test(name) ? 'tailscale' : (cgnat || /vpn|wireguard|nordlynx|zerotier|wintun/i.test(name) ? 'vpn' : 'lan');
+      out.push({ address: a.address, name, kind });
+    }
+  }
+  // prima la rete di casa, poi Tailscale, poi le altre VPN
+  return out.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
 }
 
 function readJsonBody(req, limit = 1024 * 1024) {

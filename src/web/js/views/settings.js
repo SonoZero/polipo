@@ -6,10 +6,13 @@ import { run } from '../ui.js';
 import { check } from './printer-form.js';
 import { applyTheme, getThemePref } from '../theme.js';
 import { createUpdateSettings } from '../updates.js';
+import { createPortSettings, createRemoteSettings } from '../network.js';
 
 export function mountSettings(container) {
   const s = JSON.parse(JSON.stringify(store.settings));
   const updates = createUpdateSettings();
+  const portSettings = createPortSettings();
+  const remoteSettings = createRemoteSettings();
   const presetsBox = h('div', { class: 'stack', style: { gap: '8px' } });
 
   function renderPresets() {
@@ -58,21 +61,24 @@ export function mountSettings(container) {
         h('div', { class: 'hint faint', style: { fontSize: '12px' } }, 'Importante: le stampe vengono inviate dal PC riga per riga. Se il PC va in sospensione o chiudi Polipo, la stampa si ferma.')),
       h('div', null, h('button', {
         class: 'btn primary',
-        onclick: (e) => run(() => api('PUT', '/settings', s), { button: e.currentTarget, success: 'Impostazioni salvate' }),
+        onclick: (e) => run(() => api('PUT', '/settings', { presets: s.presets, notifications: s.notifications, preventSleep: s.preventSleep }), { button: e.currentTarget, success: 'Impostazioni salvate' }),
       }, icon('check'), 'Salva impostazioni')),
+      card('Rete', portSettings.el),
+      card('Accesso dal telefono', remoteSettings.el),
       card('Aggiornamenti', updates.el),
       card('Informazioni',
         h('div', { class: 'row' },
           h('img', { src: 'img/icon.svg', alt: '', style: { width: '44px', height: '44px' } }),
           h('div', null,
-            h('div', { style: { fontWeight: 700 } }, 'Polipo'),
-            h('div', { class: 'dim', style: { fontSize: '13px' } }, 'Controllo di più stampanti 3D via USB, ispirato a OctoPrint. Compatibile con firmware Marlin, Prusa, RepRap e derivati.'))))));
+            h('div', { style: { fontWeight: 700 } }, `Polipo ${store.app.current || ''}`),
+            h('div', { class: 'dim', style: { fontSize: '13px' } }, 'Controllo di più stampanti 3D via USB, ispirato a OctoPrint. Compatibile con firmware Marlin, Prusa, RepRap e derivati.'),
+            h('div', { class: 'made-by', style: { marginTop: '6px' } }, 'made by ', h('b', null, 'zonozero')))))));
 
   if (!isElectron && 'Notification' in window && Notification.permission === 'denied') {
     notifHint.textContent = 'Le notifiche sono bloccate dal browser.';
   }
 
-  return { destroy() { updates.destroy(); } };
+  return { destroy() { updates.destroy(); portSettings.destroy(); remoteSettings.destroy(); } };
 }
 
 function card(title, ...children) {
