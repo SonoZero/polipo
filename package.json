@@ -1,0 +1,63 @@
+{
+  "name": "polipo",
+  "productName": "Polipo",
+  "version": "0.1.0",
+  "description": "Controllo di più stampanti 3D da Windows, in stile OctoPrint",
+  "main": "src/main.js",
+  "author": "Edoardo",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OWNER_GITHUB/polipo.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "server": "node scripts/server.js",
+    "test": "node --test \"test/*.test.js\"",
+    "dist": "electron-builder --win nsis portable --publish never",
+    "release": "electron-builder --win nsis portable --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "serialport": "^13.0.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "it.edoardo.polipo",
+    "productName": "Polipo",
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "OWNER_GITHUB",
+        "repo": "polipo",
+        "releaseType": "release"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Polipo",
+      "artifactName": "Polipo-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Polipo-Portable-${version}.${ext}"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+# Crea una nuova versione di Polipo quando viene pubblicato un tag "v*" (es. v0.2.0):
+# compila installer e portable per Windows e li carica in una Release di GitHub.
+# L'app installata la trova da sola e si aggiorna.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Installa le dipendenze
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Controlla che il tag corrisponda alla versione
+        shell: bash
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Il tag $GITHUB_REF_NAME non corrisponde alla versione in package.json ($version)"
+            exit 1
+          fi
+
+      - name: Compila e pubblica la Release
+        run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
