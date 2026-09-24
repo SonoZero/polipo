@@ -1,7 +1,9 @@
 # 🐙 Polipo
 
-**Polipo** è un'app per Windows che controlla **più stampanti 3D contemporaneamente** via USB, in stile [OctoPrint](https://octoprint.org).
+**Polipo** è un'app per Windows che controlla **più stampanti 3D contemporaneamente** via USB, in stile [OctoPrint](https://octoprint.org), con un'**app per il telefono** per seguirle anche da lontano.
 Il nome viene da *octopus* → polipo, e *poli-* = più stampanti.
+
+*made by zonozero*
 
 ## Cosa sa fare
 
@@ -18,6 +20,8 @@ Il nome viene da *octopus* → polipo, e *poli-* = più stampanti.
 - **Tempo rimanente e ora di fine** (usa i comandi M73 di PrusaSlicer/Orca, i commenti di Cura o la stima dello slicer).
 - **Webcam** USB collegata al PC oppure flusso MJPEG/snapshot di rete.
 - **Cronologia** delle stampe con statistiche, **notifiche di Windows** a fine stampa, blocco della **sospensione** del PC durante la stampa.
+- **App per iPhone e Android** ([`mobile/`](mobile/README.md)): stato, controllo e avvio delle stampe dal telefono, abbinata con un QR code.
+- **Porta dell'interfaccia modificabile** dalle Impostazioni, senza interrompere le stampe.
 - **Stampante virtuale** che simula un firmware Marlin, per provare tutto senza stampante.
 
 Compatibile con i firmware che parlano G-code via seriale: **Marlin** (Creality, Anycubic, Artillery, Elegoo, Sovol…), **Prusa**, **RepRapFirmware** e derivati.
@@ -35,6 +39,15 @@ Se la connessione non riesce:
 - chiudi Cura, PrusaSlicer, Arduino IDE o altri programmi che usano la stessa porta COM;
 - installa il driver CH340 se la porta non compare (schede Creality/Anycubic più vecchie);
 - prova un altro baudrate (le Anycubic i3 Mega usano 250000, quasi tutte le altre 115200).
+
+## Accesso dal telefono
+
+In **Impostazioni → Accesso dal telefono** Polipo si apre alla rete di casa e mostra un QR code da inquadrare con l'[app Polipo](mobile/README.md).
+
+- L'accesso è protetto da una **chiave segreta** casuale contenuta nel QR code; si può rigenerare in qualsiasi momento (i telefoni abbinati andranno riabbinati).
+- Dalla rete si raggiungono solo le API per l'app: la pagina web di Polipo, la porta e le impostazioni di rete restano accessibili **solo dal PC**.
+- Al primo avvio Windows può chiedere di consentire l'accesso alla rete: scegli **Reti private**.
+- **Fuori casa**: installa [Tailscale](https://tailscale.com/download) su PC e telefono; è più sicuro che aprire porte sul router.
 
 ## Aggiornamenti
 
@@ -55,6 +68,8 @@ git push --follow-tags   # GitHub Actions compila e pubblica la Release
 
 Il workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) esegue i test, controlla che il tag corrisponda alla versione, compila installer e portable e li pubblica nella Release insieme a `latest.yml` (il file che le app leggono per sapere se c'è un aggiornamento). Perché gli aggiornamenti funzionino il repository deve essere **pubblico**.
 
+Se fai un **fork** e pubblichi le tue versioni, cambia `repository.url` e `build.publish` in [`package.json`](package.json) con il tuo repository, altrimenti le copie installate continueranno a cercare gli aggiornamenti qui.
+
 ## Sviluppo
 
 Serve [Node.js](https://nodejs.org) 20 o superiore.
@@ -64,7 +79,7 @@ npm install                     # dipendenze
 node node_modules/electron/install.js   # solo se Electron non ha scaricato il suo eseguibile
 npm start                       # avvia l'app desktop
 npm run server                  # solo il servizio, interfaccia su http://127.0.0.1:5723
-npm test                        # test del protocollo con la stampante virtuale
+npm test                        # test del protocollo e della rete (con la stampante virtuale)
 npm run dist                    # crea installer e versione portable in dist/ (senza pubblicarli)
 node scripts/make-sample.js     # crea un G-code di esempio in samples/
 ```
@@ -76,7 +91,7 @@ src/
   main.js                 finestra Electron, notifiche, blocco sospensione, conferma di chiusura
   updater.js              aggiornamenti automatici dalle Release di GitHub
   server/
-    index.js              server HTTP + WebSocket (solo localhost, protetto da token)
+    index.js              server HTTP + WebSocket (token per il PC, chiave per il telefono)
     manager.js            elenco stampanti, configurazione, cronologia
     printer.js            protocollo Marlin: connessione, coda comandi, resend, stampa, pausa
     transport.js          porta seriale (serialport) o stampante virtuale
@@ -84,6 +99,7 @@ src/
     files.js              archivio G-code e analisi dei file
     gcode.js              parsing di risposte e file G-code
   web/                    interfaccia (HTML/CSS/JS senza framework)
+mobile/                   app per il telefono (Expo / React Native)
 test/                     test automatici (node --test)
 ```
 
