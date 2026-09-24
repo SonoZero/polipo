@@ -9,7 +9,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/OWNER_GITHUB/polipo.git"
+    "url": "https://github.com/Bubo780/polipo.git"
   },
   "scripts": {
     "start": "electron .",
@@ -42,7 +42,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "OWNER_GITHUB",
+        "owner": "Bubo780",
         "repo": "polipo",
         "releaseType": "release"
       }
