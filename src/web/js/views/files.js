@@ -4,6 +4,7 @@ import { h, icon, clear, fmtDuration, fmtSize, fmtFilament, fmtRelative, fmtDate
 import { api, store, on, uploadFile, fileUrl } from '../api.js';
 import { run, toast, confirmDialog } from '../ui.js';
 import { printOnMenu, fileThumb } from '../actions.js';
+import { openFile3D } from '../components/file-preview3d.js';
 
 export function mountFiles(container) {
   const offs = [];
@@ -124,9 +125,10 @@ export function mountFiles(container) {
           : h('span', { class: 'faint' }, '-')),
       h('div', { class: 'file-actions' },
         h('button', { class: 'btn primary sm', onclick: (e) => printOnMenu(e.currentTarget, f.name) }, icon('play', 'sm'), 'Stampa su…'),
-        h('a', { class: 'btn sm icon-only ghost', title: 'Scarica', href: fileUrl(f.name, 'download'), download: f.name }, icon('download', 'sm')),
+        h('button', { class: 'btn sm icon-only ghost', title: 'Anteprima 3D', 'aria-label': `Anteprima 3D di ${f.name}`, disabled: !!f.analyzing || !!m.error, onclick: () => openFile3D(f) }, icon('cube', 'sm')),
+        h('a', { class: 'btn sm icon-only ghost', title: 'Scarica', 'aria-label': `Scarica ${f.name}`, href: fileUrl(f.name, 'download'), download: f.name }, icon('download', 'sm')),
         h('button', {
-          class: 'btn sm icon-only ghost', title: 'Elimina',
+          class: 'btn sm icon-only ghost', title: 'Elimina', 'aria-label': `Elimina ${f.name}`,
           onclick: async () => {
             const ok = await confirmDialog({ title: 'Eliminare il file?', message: `"${f.name}" verrà eliminato definitivamente dall'archivio di SonoPrint.`, confirmLabel: 'Elimina', danger: true });
             if (ok) run(() => api('DELETE', `/files/${encodeURIComponent(f.name)}`));

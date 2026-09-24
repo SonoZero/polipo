@@ -4,6 +4,7 @@ import { h, icon, clear, setText, fmtDuration, fmtClock, fmtPct, fmtTemp, stateB
 import { store, on, printerList, fileByName } from '../api.js';
 import { connectPrinter, jobAction, chooseFileToPrint, fileThumb } from '../actions.js';
 import { openAddPrinter } from './printer-form.js';
+import { createMiniPrint3D } from '../components/mini-print3d.js';
 
 export function mountDashboard(container) {
   const offs = [];
@@ -43,6 +44,7 @@ export function mountDashboard(container) {
   }
 
   function renderGrid() {
+    for (const c of cards.values()) c.destroy();
     clear(grid);
     cards.clear();
     const list = printerList();
@@ -71,7 +73,11 @@ export function mountDashboard(container) {
   const clock = setInterval(updateSummary, 30000);
 
   return {
-    destroy() { offs.forEach((f) => f()); clearInterval(clock); },
+    destroy() {
+      offs.forEach((f) => f());
+      clearInterval(clock);
+      for (const c of cards.values()) c.destroy();
+    },
   };
 }
 
@@ -149,6 +155,7 @@ function createCard(initial, index) {
   }
 
   function renderBody(p, file) {
+    if (refs.mini) { refs.mini.destroy(); refs.mini = null; }
     clear(refs.body);
     refs.job = null;
     const thumb = () => {
@@ -170,8 +177,11 @@ function createCard(initial, index) {
     if (p.job) {
       const j = {};
       refs.job = j;
+      const t = thumb();
+      // anteprima 3D del pezzo che cresce, se il file è nell'archivio
+      if (file) refs.mini = createMiniPrint3D(t, file, p.id);
       refs.body.append(
-        thumb(),
+        t,
         h('div', { class: 'pcard-job' },
           j.file = h('div', { class: 'pcard-file', title: p.job.file }, p.job.file),
           h('div', { class: 'row between', style: { alignItems: 'baseline' } },
@@ -208,6 +218,7 @@ function createCard(initial, index) {
   }
 
   function patchBody(p) {
+    if (refs.mini) refs.mini.update(p);
     if (refs.send && p.task) {
       refs.send.fill.style.width = ((p.task.progress || 0) * 100).toFixed(1) + '%';
       return;
@@ -242,5 +253,5 @@ function createCard(initial, index) {
   }
 
   update(initial);
-  return { el, id: initial.id, update };
+  return { el, id: initial.id, update, destroy() { if (refs.mini) refs.mini.destroy(); } };
 }

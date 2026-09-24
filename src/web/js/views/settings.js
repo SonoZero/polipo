@@ -103,7 +103,7 @@ export function mountSettings(container) {
       }, icon('check'), 'Salva impostazioni')),
       card('Rete', portSettings.el),
       devSlot,
-      card('Aggiornamenti', updates.el),
+      card('Aggiornamenti', updates.el, h('div', null, h('a', { class: 'btn sm', href: '#/updates' }, icon('download', 'sm'), 'Centro aggiornamenti: app e stampanti'))),
       card('Informazioni',
         h('div', { class: 'row', style: { alignItems: 'flex-start' } },
           h('img', { src: 'img/icon.svg', alt: '', style: { width: '48px', height: '48px', borderRadius: '12px' } }),

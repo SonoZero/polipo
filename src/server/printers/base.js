@@ -8,6 +8,7 @@ const { EventEmitter } = require('events');
 const LOG_SIZE = 1500;
 const TEMP_HISTORY_MS = 30 * 60 * 1000;
 const SECRET_FIELDS = ['accessCode', 'apiKey', 'password'];
+const UPDATE_CHECK_DELAY = 5000;
 
 class BasePrinter extends EventEmitter {
   constructor(config, deps = {}) {
@@ -29,8 +30,10 @@ class BasePrinter extends EventEmitter {
     this.lastJob = null;
     this.task = null; // operazione lunga in corso: { kind, status, progress, message }
     this.extra = {}; // informazioni specifiche del tipo di stampante
+    this.updates = null; // riepilogo degli aggiornamenti di firmware e software
 
     this._updateTimer = null;
+    this._updatesTimer = null;
   }
 
   get id() { return this.config.id; }
@@ -67,6 +70,7 @@ class BasePrinter extends EventEmitter {
       capabilities: this.capabilities,
       extra: this.extra,
       task: this.task,
+      updates: this.updates,
       ...this._snapshotExtra(),
     };
   }
@@ -157,8 +161,41 @@ class BasePrinter extends EventEmitter {
   // Operazioni lunghe (aggiornamenti firmware, invio di file)
 
   _setTask(task) {
+    const wasRunning = this.task && this.task.status === 'running';
     this.task = task ? { ...(this.task || {}), ...task, at: Date.now() } : null;
     this._changed(true);
+    // aggiornamento finito: si ricontrolla cosa resta da aggiornare
+    if (wasRunning && this.task && this.task.kind === 'firmware' && this.task.status !== 'running') this._scheduleUpdateCheck(true);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Aggiornamenti di firmware e software
+
+  /** Controlla gli aggiornamenti e aggiorna il riepilogo visibile nell'interfaccia. */
+  async checkUpdates(refresh) {
+    if (typeof this.firmwareInfo !== 'function' || !this.isConnected) return this.updates;
+    try {
+      const summary = await this._updateSummary(refresh);
+      if (summary) this.setUpdateSummary(summary);
+    } catch (err) {
+      this.setUpdateSummary({ kind: this.type, available: 0, error: err.message, checkedAt: Date.now() });
+    }
+    return this.updates;
+  }
+
+  async _updateSummary(refresh) {
+    return summarizeFirmware(await this.firmwareInfo(refresh));
+  }
+
+  setUpdateSummary(summary) {
+    this.updates = summary;
+    this._changed();
+  }
+
+  _scheduleUpdateCheck(refresh) {
+    clearTimeout(this._updatesTimer);
+    this._updatesTimer = setTimeout(() => { this._updatesTimer = null; this.checkUpdates(refresh).catch(() => {}); }, UPDATE_CHECK_DELAY);
+    if (this._updatesTimer.unref) this._updatesTimer.unref();
   }
 
   _requireNoTask() {
@@ -172,8 +209,10 @@ class BasePrinter extends EventEmitter {
 
   _setState(state) {
     if (this.state === state) return;
+    const was = this.isConnected;
     this.state = state;
     this._changed(true);
+    if (!was && this.isConnected) this._scheduleUpdateCheck(false);
   }
 
   _fail(message) {
@@ -226,8 +265,36 @@ class BasePrinter extends EventEmitter {
 
   async destroy() {
     clearTimeout(this._updateTimer);
+    clearTimeout(this._updatesTimer);
     this.removeAllListeners();
   }
+}
+
+/**
+ * Riepilogo per il centro aggiornamenti: quanti aggiornamenti ci sono, se SonoPrint
+ * li può installare da solo e cosa c'è di nuovo.
+ */
+function summarizeFirmware(info) {
+  const base = { kind: info.kind, checkedAt: Date.now(), error: info.error || null };
+  const version = (fw) => (fw && (fw.version || fw.name)) || null;
+  if (info.kind === 'klipper' || info.kind === 'octoprint') {
+    const avail = (info.components || []).filter((c) => c.available);
+    return {
+      ...base,
+      current: version(info.current),
+      available: avail.length,
+      items: avail.map((c) => (c.remote ? `${c.label} ${c.remote}` : c.label)),
+      automatic: avail.some((c) => c.possible !== false),
+    };
+  }
+  if (info.kind === 'prusalink') {
+    return { ...base, current: version(info.current), latest: info.latest ? info.latest.version : null, available: info.updateAvailable ? 1 : 0, automatic: false };
+  }
+  if (info.kind === 'marlin') {
+    // Marlin generico: solo un'informazione, il firmware giusto lo prepara il produttore
+    return { ...base, current: version(info.current), latest: info.latest ? info.latest.version : null, available: 0, advisory: !!info.updateAvailable, automatic: false };
+  }
+  return { ...base, current: version(info.current), available: 0, automatic: false };
 }
 
 /** Configurazione senza segreti (codici di accesso, chiavi, password): quella che vedono le interfacce. */
@@ -265,4 +332,4 @@ function blendRemaining(estimatedTime, elapsed, progress) {
   return linear === null ? null : Math.round(linear);
 }
 
-module.exports = { BasePrinter, publicConfig, emptyTemps, blendRemaining, SECRET_FIELDS };
+module.exports = { BasePrinter, publicConfig, emptyTemps, blendRemaining, SECRET_FIELDS, summarizeFirmware };

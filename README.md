@@ -9,13 +9,13 @@
 - **Più stampanti insieme**, anche di tipi diversi: ognuna con la sua connessione, la sua stampa e le sue impostazioni. La *Panoramica* le mostra tutte.
 - **Stampanti in rete con ricerca automatica**: SonoPrint trova da solo le Bambu Lab, le stampanti Klipper, PrusaLink e OctoPrint nella rete di casa; basta premere **Aggiungi**.
 - **Stampanti USB**: elenca le porte COM, segnala quelle che sembrano stampanti (CH340, FTDI, STM32, Prusa...) e trova da solo il baudrate. Invio del G-code riga per riga con numeri di riga, checksum e reinvio automatico delle righe corrotte.
-- **Aggiornamento del firmware e del software** per ogni tipo di stampante (vedi sotto).
+- **Centro aggiornamenti**: SonoPrint e il firmware o il software di ogni stampante in una pagina sola, con novità, avanzamento passo per passo e **Aggiorna tutto** (vedi sotto).
 - **Pausa e ripresa sicure**, **annullamento** con script configurabile e **arresto di emergenza**.
 - **Temperature** in tempo reale con grafico e preriscaldamento rapido (PLA, PETG, ABS, TPU... personalizzabili).
 - **Controllo manuale**: movimento X/Y/Z, home, estrusione, ventola, velocità, flusso e cambio filamento.
 - **Terminale** G-code con cronologia dei comandi.
 - **Archivio file** condiviso da tutte le stampanti: `.gcode` e progetti `.gcode.3mf` di Bambu Studio e OrcaSlicer, con miniatura, tempo stimato, filamento, layer e ingombro.
-- **Anteprima G-code** layer per layer che segue la stampa in corso.
+- **Anteprima 3D** del pezzo sul piatto della stampante, che cresce seguendo la stampa in corso: nella scheda Anteprima (con la vista 2D layer per layer), come miniatura nella Panoramica e per ogni file nella pagina File.
 - **Tempo rimanente e ora di fine**.
 - **Telecamere**: webcam USB, flussi MJPEG/snapshot di rete, telecamera integrata delle Bambu P1 e A1 e telecamere di Klipper.
 - **Cronologia** delle stampe con statistiche, **notifiche di Windows** a fine stampa, blocco della **sospensione** del PC durante le stampe USB.
@@ -46,9 +46,18 @@ Se una stampante USB non si connette:
 - installa il driver CH340 se la porta non compare (schede Creality e Anycubic più vecchie);
 - prova un altro baudrate (le Anycubic i3 Mega usano 250000, quasi tutte le altre 115200).
 
+## Centro aggiornamenti
+
+La pagina **Aggiornamenti** del menu raccoglie tutto; il numero accanto alla voce dice quanti aggiornamenti ci sono.
+
+- **SonoPrint**: versione installata e nuova, novità della nuova versione, avanzamento del download e **Riavvia e aggiorna**.
+- **Ogni stampante**: firmware o software installato, cosa c'è di nuovo, quando è stato controllato e l'avanzamento con il registro. **Dettagli** apre gli stessi strumenti della scheda Firmware.
+- **Aggiorna tutto** installa uno alla volta quello che SonoPrint sa fare da solo (Klipper, OctoPrint e alla fine l'app), saltando le stampanti che stanno stampando. Il firmware da file (USB, Bambu Lab, Prusa) resta da fare a mano, con le istruzioni nei dettagli.
+- Il controllo parte da solo quando una stampante si connette e ogni 6 ore; **Controlla tutto** lo rifà subito.
+
 ## Aggiornamento del firmware
 
-Dalla pagina di ogni stampante, scheda **Firmware**:
+Dalla pagina di ogni stampante, scheda **Firmware** (oppure dai dettagli nel centro aggiornamenti):
 
 - **USB, schede a 8 bit** (ATmega2560, 1284P, 328P con bootloader): SonoPrint scrive il file `.hex` via USB e rilegge ogni pagina per verificarla.
 - **USB, schede a 32 bit** (Creality 4.2.x, BTT SKR, MKS): SonoPrint copia il file `.bin` sulla scheda SD inserita nel PC con il nome giusto (sempre diverso per Creality, `firmware.bin` per BTT e MKS); rimetti la scheda nella stampante e riaccendila.
@@ -128,7 +137,7 @@ npm test                        # test automatici (stampante virtuale e stampant
 npm run dist                    # crea installer e versione portable in dist/ (senza pubblicarli)
 node scripts/fake-printers.js   # stampanti in rete finte sul PC (Bambu, Klipper, PrusaLink, OctoPrint)
 node scripts/make-sample.js     # crea un G-code di esempio in samples/
-node scripts/build-assets.js    # copia icone e font in src/web dopo aver aggiunto un'icona
+node scripts/build-assets.js    # copia icone, font e Three.js in src/web (dopo aver aggiunto un'icona o aggiornato three)
 ```
 
 ### Struttura
@@ -148,6 +157,9 @@ src/
     files.js, threemf.js  archivio file, analisi del G-code e dei progetti .gcode.3mf
     gcode.js              parsing di risposte e file G-code
   web/                    interfaccia (HTML/CSS/JS senza framework)
+    js/components/        anteprima 2D e 3D (preview3d.js), firmware, terminale, telecamera
+    js/views/updates.js   centro aggiornamenti
+    vendor/three/         Three.js per l'anteprima 3D (copiato da scripts/build-assets.js)
 test/                     test automatici (node --test) con stampanti finte in test/fakes
 ```
 
@@ -155,4 +167,4 @@ I dati (stampanti, file caricati, cronologia) sono in `%APPDATA%\SonoPrint\data`
 
 ## Crediti
 
-Icone [Phosphor](https://phosphoricons.com) (MIT), font [Geist](https://github.com/vercel/geist-font) (SIL OFL 1.1) e le librerie elencate in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), insieme alle fonti della documentazione dei protocolli delle stampanti.
+Anteprima 3D con [Three.js](https://threejs.org) (MIT), icone [Phosphor](https://phosphoricons.com) (MIT), font [Geist](https://github.com/vercel/geist-font) (SIL OFL 1.1) e le librerie elencate in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), insieme alle fonti della documentazione dei protocolli delle stampanti.

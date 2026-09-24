@@ -55,7 +55,7 @@ export function confirmDialog({ title, message, confirmLabel = 'Conferma', dange
     const close = openModal({
       title,
       size: 'narrow',
-      body: h('p', { style: { margin: 0, color: 'var(--text-dim)' } }, message),
+      body: message instanceof Node ? message : h('p', { style: { margin: 0, color: 'var(--text-dim)' } }, message),
       footer: (c) => [
         h('button', { class: 'btn', onclick: () => c() }, 'Annulla'),
         h('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), onclick: () => { result = true; c(); } }, confirmLabel),

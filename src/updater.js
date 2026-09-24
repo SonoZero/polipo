@@ -30,6 +30,11 @@ class Updater extends EventEmitter {
       checkedAt: null,
       portable: this.portable,
       releaseUrl: releasesUrl(),
+      notes: [], // novità della nuova versione: [{ type: 'h' | 'li' | 'p', text }]
+      releaseDate: null,
+      transferred: null,
+      total: null,
+      bytesPerSecond: null,
     };
     this.autoUpdater = null;
     this.timer = null;
@@ -48,10 +53,25 @@ class Updater extends EventEmitter {
       status: this.portable ? 'available' : 'downloading',
       version: info.version,
       percent: 0,
+      notes: notesToBlocks(info.releaseNotes),
+      releaseDate: info.releaseDate || null,
+      checkedAt: Date.now(),
     }));
-    autoUpdater.on('download-progress', (p) => this._set({ status: 'downloading', percent: Math.round(p.percent) }));
-    autoUpdater.on('update-downloaded', (info) => this._set({ status: 'downloaded', version: info.version, percent: 100 }));
-    autoUpdater.on('update-not-available', () => this._set({ status: 'latest', version: null, checkedAt: Date.now() }));
+    autoUpdater.on('download-progress', (p) => this._set({
+      status: 'downloading',
+      percent: Math.round(p.percent),
+      transferred: p.transferred,
+      total: p.total,
+      bytesPerSecond: p.bytesPerSecond,
+    }));
+    autoUpdater.on('update-downloaded', (info) => this._set({
+      status: 'downloaded',
+      version: info.version,
+      percent: 100,
+      bytesPerSecond: null,
+      notes: this.state.notes.length ? this.state.notes : notesToBlocks(info.releaseNotes),
+    }));
+    autoUpdater.on('update-not-available', () => this._set({ status: 'latest', version: null, notes: [], checkedAt: Date.now() }));
     autoUpdater.on('error', (err) => this._set({ status: 'error', error: friendlyError(err), checkedAt: Date.now() }));
 
     setTimeout(() => this.check(), 10000);
@@ -89,6 +109,42 @@ class Updater extends EventEmitter {
   }
 }
 
+/**
+ * Note di rilascio di GitHub (HTML) come blocchi di solo testo: titoli, punti di elenco e paragrafi.
+ * Niente HTML nell'interfaccia, così le note non possono inserire codice.
+ */
+function notesToBlocks(notes) {
+  const raw = Array.isArray(notes) ? notes.map((n) => (n && n.note) || '').join('\n') : String(notes || '');
+  const blocks = [];
+  const re = /<(h[1-6]|li|p)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while ((m = re.exec(raw))) {
+    const text = decodeEntities(m[2].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const tag = m[1].toLowerCase();
+    blocks.push({ type: tag[0] === 'h' ? 'h' : tag === 'li' ? 'li' : 'p', text });
+  }
+  if (!blocks.length) {
+    // testo semplice o Markdown
+    for (const line of raw.replace(/<[^>]+>/g, '').split(/\r?\n/)) {
+      const t = decodeEntities(line).trim();
+      if (!t) continue;
+      if (/^#{1,6}\s/.test(t)) blocks.push({ type: 'h', text: t.replace(/^#+\s*/, '') });
+      else if (/^[-*]\s/.test(t)) blocks.push({ type: 'li', text: t.replace(/^[-*]\s*/, '') });
+      else blocks.push({ type: 'p', text: t });
+    }
+  }
+  return blocks.map((b) => ({ ...b, text: b.text.replace(/\*\*|`/g, '') })).slice(0, 60);
+}
+
+function decodeEntities(s) {
+  const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', agrave: 'à', egrave: 'è', eacute: 'é', igrave: 'ì', ograve: 'ò', ugrave: 'ù' };
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
+    if (e[0] === '#') return String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1)));
+    return named[e.toLowerCase()] ?? all;
+  });
+}
+
 function friendlyError(err) {
   const msg = String((err && err.message) || err);
   if (/ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|net::ERR_/i.test(msg)) return 'Nessuna connessione a Internet: riproverò più tardi.';
@@ -97,4 +153,4 @@ function friendlyError(err) {
   return msg.split('\n')[0].slice(0, 200);
 }
 
-module.exports = { Updater };
+module.exports = { Updater, notesToBlocks };

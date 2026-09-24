@@ -8,6 +8,7 @@ import { mountPrinter } from './views/printer.js';
 import { mountFiles } from './views/files.js';
 import { mountHistory } from './views/history.js';
 import { mountSettings } from './views/settings.js';
+import { mountUpdates, updatesCount } from './views/updates.js';
 import { openAddPrinter } from './views/printer-form.js';
 import { applyTheme } from './theme.js';
 import { createUpdateBanner } from './updates.js';
@@ -20,6 +21,7 @@ const updateBanner = createUpdateBanner();
 const sidebar = document.getElementById('sidebar');
 const main = document.getElementById('main');
 let sideRefs = new Map();
+let updatesNav = null;
 
 function renderSidebar() {
   clear(sidebar);
@@ -35,6 +37,7 @@ function renderSidebar() {
       navItem('#/', 'grid', 'Panoramica', route.name === 'dashboard'),
       navItem('#/files', 'files', 'File', route.name === 'files', store.files.length || undefined),
       navItem('#/history', 'history', 'Cronologia', route.name === 'history'),
+      updatesNav = navItem('#/updates', 'download', 'Aggiornamenti', route.name === 'updates'),
       navItem('#/settings', 'settings', 'Impostazioni', route.name === 'settings')),
     h('div', { class: 'side-section' }, 'Stampanti',
       h('button', { class: 'btn ghost icon-only sm', title: 'Aggiungi stampante', 'aria-label': 'Aggiungi stampante', onclick: () => openAddPrinter() }, icon('plus', 'sm'))),
@@ -63,6 +66,21 @@ function renderSidebar() {
     updateBanner.el,
     h('button', { class: 'btn block', onclick: () => openAddPrinter() }, icon('plus'), 'Aggiungi stampante'),
     h('div', { class: 'made-by' }, 'made by ', h('b', null, 'sonozero'))));
+  updateUpdatesBadge();
+}
+
+/** Numero di aggiornamenti accanto alla voce del menu. */
+function updateUpdatesBadge() {
+  if (!updatesNav) return;
+  const n = updatesCount();
+  let badge = updatesNav.querySelector('.nav-badge');
+  if (!n) { if (badge) badge.remove(); return; }
+  if (!badge) {
+    badge = h('span', { class: 'nav-badge' });
+    updatesNav.appendChild(badge);
+  }
+  setText(badge, String(n));
+  badge.title = n === 1 ? '1 aggiornamento' : `${n} aggiornamenti`;
 }
 
 function updateSidePrinter(p) {
@@ -90,7 +108,7 @@ function parseRoute() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (!parts.length) return { name: 'dashboard' };
   if (parts[0] === 'printer' && parts[1]) return { name: 'printer', id: parts[1], tab: parts[2] || 'control' };
-  if (['files', 'history', 'settings'].includes(parts[0])) return { name: parts[0] };
+  if (['files', 'history', 'settings', 'updates'].includes(parts[0])) return { name: parts[0] };
   return { name: 'dashboard' };
 }
 
@@ -150,6 +168,7 @@ function renderRoute() {
   } else if (route.name === 'files') current = mountFiles(container);
   else if (route.name === 'history') current = mountHistory(container);
   else if (route.name === 'settings') current = mountSettings(container);
+  else if (route.name === 'updates') current = mountUpdates(container);
   else current = mountDashboard(container);
   renderSidebar();
 }
@@ -164,12 +183,13 @@ on('printers', () => {
   if (route.name === 'printer' && !store.printers.has(route.id)) location.hash = '#/';
   renderSidebar();
 });
-on('printer', (p) => updateSidePrinter(p));
+on('printer', (p) => { updateSidePrinter(p); updateUpdatesBadge(); });
 on('files', () => renderSidebar());
 on('connection', (ok) => { document.getElementById('conn-banner').hidden = ok; });
 
 let toastedUpdate = null;
 on('app', () => {
+  updateUpdatesBadge();
   const a = store.app;
   if (a.status === 'downloaded' && toastedUpdate !== a.version) {
     toastedUpdate = a.version;

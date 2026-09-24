@@ -14,7 +14,7 @@ import {
 import { createTempChart } from '../components/temp-chart.js';
 import { createTerminal } from '../components/terminal.js';
 import { createWebcam, listCameras } from '../components/webcam.js';
-import { createGcodeViewer } from '../components/gcode-viewer.js';
+import { createPreview } from '../components/preview-tab.js';
 import { createFirmware } from '../components/firmware.js';
 import { openPrinterForm, check, toggle } from './printer-form.js';
 
@@ -360,7 +360,7 @@ export function mountPrinter(container, id, initialTab) {
     const p = P();
     if (tab === 'control') tabComp = createControl(id);
     else if (tab === 'terminal') tabComp = createTerminal(id);
-    else if (tab === 'preview') tabComp = createGcodeViewer(id);
+    else if (tab === 'preview') tabComp = createPreview(id);
     else if (tab === 'webcam') tabComp = createWebcam(p);
     else if (tab === 'firmware') tabComp = createFirmware(id);
     else tabComp = createPrinterSettings(id);

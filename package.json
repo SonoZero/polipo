@@ -32,7 +32,8 @@
     "@phosphor-icons/core": "^2.1.1",
     "aedes": "^1.2.0",
     "electron": "^44.4.5",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "three": "^0.186.1"
   },
   "build": {
     "appId": "com.sonozero.sonoprint",

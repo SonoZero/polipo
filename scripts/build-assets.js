@@ -1,6 +1,6 @@
 'use strict';
 
-// Copia nell'interfaccia le icone Phosphor usate e i font Geist (da node_modules),
+// Copia nell'interfaccia le icone Phosphor usate, i font Geist e Three.js (da node_modules),
 // così l'app funziona senza internet. Da rilanciare dopo aver aggiunto un'icona:
 //   node scripts/build-assets.js
 
@@ -112,5 +112,20 @@ function copyFonts() {
   console.log(`font: ${files.length}`);
 }
 
+// Three.js per l'anteprima 3D: senza bundler, quindi gli import di "three" diventano percorsi relativi
+function copyThree() {
+  const dest = path.join(WEB, 'vendor', 'three');
+  fs.mkdirSync(dest, { recursive: true });
+  const src = path.join(NM, 'three');
+  fs.copyFileSync(path.join(src, 'build', 'three.module.js'), path.join(dest, 'three.module.js'));
+  fs.copyFileSync(path.join(src, 'build', 'three.core.js'), path.join(dest, 'three.core.js'));
+  const orbit = fs.readFileSync(path.join(src, 'examples', 'jsm', 'controls', 'OrbitControls.js'), 'utf8')
+    .replace(/from ['"]three['"]/g, "from './three.module.js'");
+  fs.writeFileSync(path.join(dest, 'OrbitControls.js'), '// Three.js OrbitControls, licenza MIT (vedi LICENSE)\n' + orbit);
+  fs.copyFileSync(path.join(src, 'LICENSE'), path.join(dest, 'LICENSE'));
+  console.log('three: ' + require(path.join(src, 'package.json')).version);
+}
+
 buildIcons();
 copyFonts();
+copyThree();

@@ -1,10 +1,9 @@
 // Anteprima 2D del G-code layer per layer, con avanzamento della stampa in corso.
 
 import { h, icon, clear, setText } from '../util.js';
-import { store, fileUrl, fileByName } from '../api.js';
+import { store, fileByName } from '../api.js';
 import { check } from '../views/printer-form.js';
-
-const cache = new Map(); // nome file + dimensione -> risultato analisi
+import { loadGcode, getCached, fileKey, baseName, jobPos as posOf, layerAt } from './gcode-data.js';
 
 export function createGcodeViewer(printerId) {
   const canvas = h('canvas');
@@ -20,8 +19,8 @@ export function createGcodeViewer(printerId) {
   let loadedKey = '';
   let layer = 0;
   let view = null; // { scale, ox, oy }
-  let worker = null;
   let raf = 0;
+  let destroyed = false;
   let manualFile = null;
 
   const followCheck = check('Segui la stampa in corso', opts.follow, (v) => { opts.follow = v; syncFollow(); schedule(); });
@@ -108,30 +107,17 @@ export function createGcodeViewer(printerId) {
       schedule();
       return;
     }
-    const key = f.name + '|' + f.size + '|' + f.addedAt;
+    const key = fileKey(f);
     if (key === loadedKey) return;
     loadedKey = key;
     data = null;
     view = null;
-    if (cache.has(key)) { onLoaded(cache.get(key)); return; }
-    if (worker) worker.terminate();
-    overlay.textContent = 'Analisi del G-code…';
-    worker = new Worker('js/components/gcode-worker.js');
-    worker.onmessage = (ev) => {
-      const m = ev.data;
-      if (m.type === 'progress') overlay.textContent = `Analisi del G-code… ${Math.round(m.pct * 100)}%`;
-      else if (m.type === 'done') {
-        worker.terminate(); worker = null;
-        if (key !== loadedKey) return;
-        cache.set(key, m);
-        while (cache.size > 3) cache.delete(cache.keys().next().value);
-        onLoaded(m);
-      } else if (m.type === 'error') {
-        worker.terminate(); worker = null;
-        overlay.textContent = 'Errore: ' + m.message;
-      }
-    };
-    worker.postMessage({ url: new URL(fileUrl(f.name, 'content'), location.href).href });
+    const hit = getCached(f);
+    if (hit) { onLoaded(hit); return; }
+    overlay.textContent = 'Analisi del G-code...';
+    loadGcode(f, (pct) => { if (key === loadedKey) overlay.textContent = `Analisi del G-code... ${Math.round(pct * 100)}%`; })
+      .then((m) => { if (!destroyed && key === loadedKey) onLoaded(m); })
+      .catch((err) => { if (!destroyed && key === loadedKey) overlay.textContent = 'Errore: ' + err.message; });
   }
 
   function onLoaded(result) {
@@ -148,21 +134,11 @@ export function createGcodeViewer(printerId) {
     return !!(p && p.job && data && baseName(p.job.file) === baseName(currentFileName()));
   }
 
-  /** Punto del file raggiunto: esatto per le stampanti USB, stimato per quelle in rete. */
-  function jobPos(job) {
-    if (job.filePos !== undefined && job.filePos !== null) return job.filePos;
-    if (job.layer && data.layers.length) {
-      const next = data.layers[Math.min(job.layer, data.layers.length)];
-      return next ? next.start - 1 : (data.size || Infinity);
-    }
-    return Math.round((job.progress || 0) * (data.size || 0));
-  }
+  const jobPos = (job) => posOf(job, data);
 
   function syncFollow() {
     if (!data || !opts.follow || !isPrintingThis()) return;
-    const pos = jobPos(printer().job);
-    let idx = 0;
-    for (let i = 0; i < data.layers.length; i++) { if (data.layers[i].start <= pos) idx = i; else break; }
+    const idx = layerAt(data, jobPos(printer().job));
     if (idx !== layer) setLayer(idx);
   }
 
@@ -285,7 +261,7 @@ export function createGcodeViewer(printerId) {
     },
     onFilesChanged() { ensureLoaded(); },
     destroy() {
-      if (worker) worker.terminate();
+      destroyed = true;
       ro.disconnect();
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
@@ -293,8 +269,4 @@ export function createGcodeViewer(printerId) {
       cancelAnimationFrame(raf);
     },
   };
-}
-
-function baseName(name) {
-  return String(name || '').replace(/(\.gcode)?\.3mf$|\.(gcode|gco|g)$/i, '');
 }

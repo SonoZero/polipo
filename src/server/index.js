@@ -17,6 +17,9 @@ const { discoverPrinters, probeHost } = require('./discovery');
 const { requestOctoPrintKey } = require('./printers/octoprint');
 const { listRemovableDrives } = require('./firmware/drives');
 const { pipeline } = require('stream/promises');
+const { summarizeFirmware } = require('./printers/base');
+
+const UPDATE_CHECK_EVERY = 6 * 60 * 60 * 1000;
 
 const LOCAL_HOST = '127.0.0.1';
 const ANY_HOST = '0.0.0.0';
@@ -218,8 +221,17 @@ async function startServer(options = {}) {
     const id = /^\/api\/printers\/([\w-]+)\//.exec(url.pathname)[1];
     const p = manager.get(id);
     if (typeof p.firmwareInfo !== 'function') throw badRequest('Per questa stampante non ci sono aggiornamenti gestiti da SonoPrint.');
-    return p.firmwareInfo(url.searchParams.get('refresh') === '1');
+    const info = await p.firmwareInfo(url.searchParams.get('refresh') === '1');
+    p.setUpdateSummary(summarizeFirmware(info));
+    return info;
   }, { raw: true });
+  // centro aggiornamenti: ricontrolla l'app e tutte le stampanti connesse
+  route('POST', /^\/api\/updates\/check$/, async () => {
+    const app = appInfo.getState().status === 'unsupported' ? null : appInfo.check().catch(() => null);
+    await Promise.all(manager.list().filter((p) => p.isConnected).map((p) => p.checkUpdates(true)));
+    await app;
+    return { app: appInfo.getState(), printers: manager.snapshots() };
+  });
   route('POST', /^\/api\/printers\/([\w-]+)\/firmware\/install$/, async (req, m) => {
     const p = manager.get(m[1]);
     const body = await readJsonBody(req);
@@ -542,6 +554,11 @@ async function startServer(options = {}) {
     }
     pendingLogs.clear();
   }, 150);
+  // aggiornamenti di firmware e software: ricontrollati ogni 6 ore (e a ogni connessione)
+  const updatesTimer = setInterval(() => {
+    for (const p of manager.list()) if (p.isConnected) p.checkUpdates(false).catch(() => {});
+  }, UPDATE_CHECK_EVERY);
+  if (updatesTimer.unref) updatesTimer.unref();
 
   // ---------------------------------------------------------------------------
   // Avvio
@@ -652,6 +669,7 @@ async function startServer(options = {}) {
     events,
     async close() {
       clearInterval(logTimer);
+      clearInterval(updatesTimer);
       await queue;
       for (const ws of clients) ws.terminate();
       await manager.shutdown();

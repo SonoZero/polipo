@@ -32,6 +32,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### Three.js
+
+L'anteprima 3D usa [Three.js](https://threejs.org) (`src/web/vendor/three/`), Copyright 2010-2026 three.js authors, con licenza MIT. Il testo completo è in [`src/web/vendor/three/LICENSE`](src/web/vendor/three/LICENSE).
+
 ### Font Geist e Geist Mono
 
 Copyright 2024 The Geist Project Authors ([vercel/geist-font](https://github.com/vercel/geist-font)), con licenza SIL Open Font License 1.1. Il testo completo è in [`src/web/fonts/OFL.txt`](src/web/fonts/OFL.txt).

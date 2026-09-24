@@ -3,7 +3,7 @@
 // Stampante collegata via USB: connessione, protocollo Marlin (numeri di riga +
 // checksum, resend, timeout), temperature, controllo manuale e stampa di file G-code.
 
-const { BasePrinter } = require('./base');
+const { BasePrinter, summarizeFirmware } = require('./base');
 const { createTransport, VIRTUAL_PORT } = require('../transport');
 const { flashHex, parseIntelHex } = require('../firmware/avr');
 const { listRemovableDrives, copyFirmwareToDrive } = require('../firmware/drives');
@@ -856,6 +856,15 @@ class MarlinPrinter extends BasePrinter {
 
   // ---------------------------------------------------------------------------
   // Firmware
+
+  /** Riepilogo per il centro aggiornamenti: senza cercare le schede SD, e niente per la stampante virtuale. */
+  async _updateSummary(refresh) {
+    if ((this.port || this.config.port) === VIRTUAL_PORT) return null;
+    const fw = this.firmware;
+    const isMarlin = !!(fw && /marlin/i.test(fw.name || ''));
+    const latest = isMarlin ? await latestRelease('MarlinFirmware/Marlin', refresh) : null;
+    return summarizeFirmware({ kind: 'marlin', current: fw, latest, updateAvailable: !!(latest && fw && fw.version && compareVersions(latest.version, fw.version) > 0) });
+  }
 
   async firmwareInfo(refresh) {
     const fw = this.firmware;
