@@ -12,6 +12,7 @@ import { mountUpdates, updatesCount } from './views/updates.js';
 import { openAddPrinter } from './views/printer-form.js';
 import { applyTheme } from './theme.js';
 import { createUpdateBanner } from './updates.js';
+import { openUpdateWizard } from './components/update-wizard.js';
 
 applyTheme();
 const updateBanner = createUpdateBanner();
@@ -177,7 +178,16 @@ window.addEventListener('hashchange', () => { setNav(false); renderRoute(); });
 
 // --- eventi dal servizio ------------------------------------------------------------
 
-on('ready', () => { currentKey = ''; renderRoute(); });
+on('ready', () => { currentKey = ''; renderRoute(); showUpdateOutcome(); });
+
+// dopo un aggiornamento (riuscito o no) il wizard si apre da solo, una volta
+let outcomeShown = false;
+function showUpdateOutcome() {
+  const a = store.app || {};
+  if (outcomeShown || !(a.justUpdated || a.installFailed)) return;
+  outcomeShown = true;
+  openUpdateWizard();
+}
 on('printers', () => {
   const route = parseRoute();
   if (route.name === 'printer' && !store.printers.has(route.id)) location.hash = '#/';
@@ -190,6 +200,7 @@ on('connection', (ok) => { document.getElementById('conn-banner').hidden = ok; }
 let toastedUpdate = null;
 on('app', () => {
   updateUpdatesBadge();
+  showUpdateOutcome();
   const a = store.app;
   if (a.status === 'downloaded' && toastedUpdate !== a.version) {
     toastedUpdate = a.version;

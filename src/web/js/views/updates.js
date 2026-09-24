@@ -6,7 +6,8 @@
 import { h, icon, clear, setText, fmtRelative, fmtSize, PRINTER_TYPES } from '../util.js';
 import { api, store, on, printerList } from '../api.js';
 import { run, toast, confirmDialog } from '../ui.js';
-import { installUpdate, openReleases } from '../updates.js';
+import { installUpdate, openReleases, checkForUpdates } from '../updates.js';
+import { openUpdateWizard } from '../components/update-wizard.js';
 import { createFirmware } from '../components/firmware.js';
 
 const TASK_TIMEOUT = 30 * 60 * 1000;
@@ -110,6 +111,7 @@ export function mountUpdates(container) {
         case 'downloaded': return { chip: h('span', { class: 'chip accent' }, icon('zap'), 'Pronta'), text: `La versione ${a.version} è pronta: si installa riavviando SonoPrint.` };
         case 'available': return { chip: h('span', { class: 'chip accent' }, icon('zap'), 'Nuova versione'), text: `È uscita la versione ${a.version}. La versione portable non si aggiorna da sola: scarica quella nuova.` };
         case 'error': return { chip: h('span', { class: 'chip warn' }, icon('alert'), 'Errore'), text: `Controllo non riuscito: ${a.error}` };
+        case 'installing': return { chip: h('span', { class: 'chip accent' }, h('span', { class: 'spinner' }), 'Installazione'), text: `Installo la versione ${a.version}: SonoPrint si chiude e si riapre da solo.` };
         default: return { chip: null, text: 'Controllo automatico all\'avvio e ogni 6 ore.' };
       }
     })();
@@ -123,8 +125,9 @@ export function mountUpdates(container) {
       action = h('button', {
         class: 'btn',
         disabled: ['checking', 'downloading'].includes(a.status),
-        onclick: (e) => run(() => api('POST', '/app/update/check'), { button: e.currentTarget }),
+        onclick: () => checkForUpdates(),
       }, icon('refresh'), 'Controlla');
+      if (['downloading', 'installing'].includes(a.status)) action = h('button', { class: 'btn', onclick: () => openUpdateWizard() }, icon('download'), 'Dettagli');
     }
 
     appCard.append(

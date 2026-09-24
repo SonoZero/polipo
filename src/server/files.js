@@ -24,7 +24,7 @@ class FileStore extends EventEmitter {
     fs.mkdirSync(this.dir, { recursive: true });
     fs.mkdirSync(this.thumbDir, { recursive: true });
     fs.mkdirSync(this.cacheDir, { recursive: true });
-    this.meta = readJson(this.metaPath, {});
+    this.meta = readJsonSafe(this.metaPath, {});
     this.analyzing = new Set();
     this.isInUse = () => false;
     this._saveTimer = null;
@@ -224,6 +224,33 @@ function readJson(p, def) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return def; }
 }
 
+/**
+ * Lettura dei file importanti (configurazione, cronologia) senza mai perderli:
+ * - file mancante: valore iniziale;
+ * - file rovinato: se ne tiene una copia accanto e si riparte dal valore iniziale;
+ * - file bloccato (per esempio subito dopo un aggiornamento): si riprova per qualche secondo e,
+ *   se resta illeggibile, errore, così non viene sovrascritto con dati vuoti.
+ */
+function readJsonSafe(p, def, { attempts = 15, waitMs = 200 } = {}) {
+  for (let i = 0; ; i++) {
+    let text;
+    try {
+      text = fs.readFileSync(p, 'utf8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return def;
+      if (i + 1 >= attempts) throw new Error(`Impossibile leggere ${path.basename(p)}: ${err.message}`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+      continue;
+    }
+    try {
+      return JSON.parse(text);
+    } catch (_) {
+      try { fs.copyFileSync(p, `${p}.rovinato-${Date.now()}`); } catch (__) { /* copia facoltativa */ }
+      return def;
+    }
+  }
+}
+
 function writeJson(p, data) {
   const tmp = p + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
@@ -234,4 +261,4 @@ function removeQuiet(p) {
   try { fs.unlinkSync(p); } catch (_) { /* ignora */ }
 }
 
-module.exports = { FileStore, sanitizeName, readJson, writeJson, isProject };
+module.exports = { FileStore, sanitizeName, readJson, readJsonSafe, writeJson, isProject };

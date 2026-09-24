@@ -4,10 +4,16 @@
 // - versione installata: scarica in background e installa al riavvio;
 // - versione portable: segnala solo la nuova versione e apre la pagina di download.
 
+const fs = require('fs');
+const path = require('path');
 const { EventEmitter } = require('events');
 const pkg = require('../package.json');
 
 const CHECK_EVERY = 6 * 60 * 60 * 1000;
+// se dopo questo tempo SonoPrint è ancora aperto, l'installer non è partito o non è riuscito a chiuderlo
+const INSTALL_STUCK_MS = 25000;
+// file scritto prima di installare: al riavvio dice se l'aggiornamento è andato a buon fine
+const PENDING_FILE = 'update-pending.json';
 
 // electron-builder toglie "build" dal package.json impacchettato: il repository invece resta
 function releasesUrl() {
@@ -35,18 +41,36 @@ class Updater extends EventEmitter {
       transferred: null,
       total: null,
       bytesPerSecond: null,
+      installMode: null, // 'silent' (si chiude e si riapre da solo) o 'visible' (finestra dell'installer)
+      installStartedAt: null,
+      installStuck: false,
+      justUpdated: null, // { from, to }: aggiornamento riuscito, mostrato una volta al riavvio
+      installFailed: null, // { from, to, at }: al riavvio la versione non era cambiata
+      hasLog: false,
     };
     this.autoUpdater = null;
     this.timer = null;
+    this.stuckTimer = null;
+    this.log = () => {};
   }
 
   init() {
     if (!this.app.isPackaged) return; // in sviluppo (npm start) non si aggiorna
+    const dir = this.app.getPath('userData');
+    this.pendingPath = path.join(dir, PENDING_FILE);
+    this.logPath = path.join(dir, 'logs', 'updater.log');
+    const logger = fileLogger(this.logPath);
+    this.log = (level, ...args) => logger[level](...args);
+    this.state.hasLog = true;
+    this._checkPendingInstall();
+
     const { autoUpdater } = require('electron-updater');
     this.autoUpdater = autoUpdater;
     autoUpdater.autoDownload = !this.portable;
     autoUpdater.autoInstallOnAppQuit = !this.portable;
-    autoUpdater.logger = null;
+    autoUpdater.disableWebInstaller = true;
+    autoUpdater.logger = logger;
+    this.log('info', `SonoPrint ${this.state.current} avviato${this.portable ? ' (portable)' : ''}`);
 
     autoUpdater.on('checking-for-update', () => this._set({ status: 'checking', error: null }));
     autoUpdater.on('update-available', (info) => this._set({
@@ -72,7 +96,17 @@ class Updater extends EventEmitter {
       notes: this.state.notes.length ? this.state.notes : notesToBlocks(info.releaseNotes),
     }));
     autoUpdater.on('update-not-available', () => this._set({ status: 'latest', version: null, notes: [], checkedAt: Date.now() }));
-    autoUpdater.on('error', (err) => this._set({ status: 'error', error: friendlyError(err), checkedAt: Date.now() }));
+    autoUpdater.on('error', (err) => {
+      this.log('error', 'Errore:', err && err.stack ? err.stack : String(err));
+      // installazione non partita: resta pronta per riprovare
+      if (this.state.status === 'installing') {
+        this._clearPending();
+        clearTimeout(this.stuckTimer);
+        this._set({ status: 'downloaded', installMode: null, error: 'L\'installazione non è partita: ' + friendlyError(err) });
+        return;
+      }
+      this._set({ status: 'error', error: friendlyError(err), checkedAt: Date.now() });
+    });
 
     setTimeout(() => this.check(), 10000);
     this.timer = setInterval(() => this.check(), CHECK_EVERY);
@@ -85,7 +119,7 @@ class Updater extends EventEmitter {
   async check() {
     if (!this.autoUpdater) throw new Error('Gli aggiornamenti automatici funzionano solo nella versione installata di SonoPrint.');
     // se c'è già un aggiornamento pronto non serve ricontrollare
-    if (['downloading', 'downloaded', 'checking'].includes(this.state.status)) return this.state;
+    if (['downloading', 'downloaded', 'checking', 'installing'].includes(this.state.status)) return this.state;
     try {
       await this.autoUpdater.checkForUpdates();
     } catch (err) {
@@ -94,13 +128,83 @@ class Updater extends EventEmitter {
     return this.state;
   }
 
-  install() {
-    if (!this.autoUpdater || this.state.status !== 'downloaded') {
+  /**
+   * Installa l'aggiornamento scaricato.
+   * - silent: SonoPrint si chiude, l'installer lavora in background e lo riapre;
+   * - visible: si apre la finestra dell'installer, con la sua barra di avanzamento.
+   */
+  install(mode = 'silent') {
+    const ready = this.state.status === 'downloaded' || (this.state.status === 'installing' && this.state.installStuck);
+    if (!this.autoUpdater || !ready) {
       throw new Error('Nessun aggiornamento pronto da installare.');
     }
-    // installazione silenziosa e riavvio automatico di SonoPrint
-    setTimeout(() => this.autoUpdater.quitAndInstall(true, true), 300);
+    const visible = mode === 'visible';
+    this._writePending(visible ? 'visible' : 'silent');
+    this.log('info', `Installazione della versione ${this.state.version} (${visible ? 'con la finestra dell\'installer' : 'silenziosa'})`);
+    this.autoUpdater.quitAndInstallCalled = false; // un nuovo tentativo dopo uno non riuscito
+    this._set({ status: 'installing', installMode: visible ? 'visible' : 'silent', installStartedAt: Date.now(), installStuck: false, error: null });
+    setTimeout(() => this.autoUpdater.quitAndInstall(!visible, true), 300);
+    clearTimeout(this.stuckTimer);
+    this.stuckTimer = setTimeout(() => {
+      if (this.state.status !== 'installing') return;
+      this.log('warn', 'SonoPrint è ancora aperto: l\'installer non è partito o non è riuscito a chiuderlo');
+      this._set({ installStuck: true });
+    }, INSTALL_STUCK_MS);
     return { ok: true };
+  }
+
+  /** Chiusura normale con un aggiornamento pronto: electron-updater lo installa, si segna per controllarlo al riavvio. */
+  prepareQuit() {
+    if (this.autoUpdater && this.state.status === 'downloaded' && this.autoUpdater.autoInstallOnAppQuit) {
+      this._writePending('quit');
+      this.log('info', `Chiusura con la versione ${this.state.version} pronta: si installa adesso`);
+    }
+  }
+
+  /** Nasconde il messaggio di aggiornamento riuscito o non riuscito mostrato al riavvio. */
+  dismiss() {
+    this._set({ justUpdated: null, installFailed: null });
+    return this.state;
+  }
+
+  openLog() {
+    if (!this.logPath || !fs.existsSync(this.logPath)) throw new Error('Il registro degli aggiornamenti è ancora vuoto.');
+    require('electron').shell.showItemInFolder(this.logPath);
+    return { ok: true };
+  }
+
+  _writePending(mode) {
+    if (!this.pendingPath) return;
+    try {
+      fs.writeFileSync(this.pendingPath, JSON.stringify({ from: this.state.current, to: this.state.version, mode, at: Date.now() }));
+    } catch (err) {
+      this.log('warn', 'Impossibile salvare lo stato dell\'installazione:', err.message);
+    }
+  }
+
+  _clearPending() {
+    try { if (this.pendingPath) fs.unlinkSync(this.pendingPath); } catch (_) { /* già assente */ }
+  }
+
+  /** Al riavvio: la versione è quella nuova? */
+  _checkPendingInstall(attempt = 0) {
+    let p = null;
+    try {
+      p = JSON.parse(fs.readFileSync(this.pendingPath, 'utf8'));
+    } catch (err) {
+      // subito dopo l'installazione il file può essere ancora bloccato: si riprova tra poco
+      if (err.code && err.code !== 'ENOENT' && attempt < 5) setTimeout(() => this._checkPendingInstall(attempt + 1), 2000);
+      return;
+    }
+    this._clearPending();
+    if (!p || !p.to) return;
+    if (p.to === this.state.current) {
+      this.log('info', `Aggiornamento riuscito: ${p.from} -> ${p.to}`);
+      this._set({ justUpdated: { from: p.from, to: p.to } });
+    } else if (p.from === this.state.current && Date.now() - p.at < 7 * 86400000) {
+      this.log('warn', `Aggiornamento a ${p.to} non installato (modalità ${p.mode}): la versione è ancora ${p.from}`);
+      this._set({ installFailed: { from: p.from, to: p.to, at: p.at, mode: p.mode } });
+    }
   }
 
   _set(patch) {
@@ -143,6 +247,19 @@ function decodeEntities(s) {
     if (e[0] === '#') return String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1)));
     return named[e.toLowerCase()] ?? all;
   });
+}
+
+/** Registro degli aggiornamenti in un file (anche quello di electron-updater), al massimo circa 1 MB. */
+function fileLogger(file) {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (fs.existsSync(file) && fs.statSync(file).size > 1024 * 1024) fs.renameSync(file, file + '.old');
+  } catch (_) { /* il registro è facoltativo */ }
+  const write = (level) => (...args) => {
+    const text = args.map((a) => (a instanceof Error ? a.stack || a.message : typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    try { fs.appendFileSync(file, `${new Date().toISOString()} ${level} ${text}\n`); } catch (_) { /* disco pieno o file bloccato */ }
+  };
+  return { info: write('INFO'), warn: write('WARN'), error: write('ERROR'), debug: write('DEBUG') };
 }
 
 function friendlyError(err) {

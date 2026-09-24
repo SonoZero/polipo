@@ -283,11 +283,14 @@ async function startServer(options = {}) {
 
   route('GET', /^\/api\/app$/, () => appInfo.getState());
   route('POST', /^\/api\/app\/update\/check$/, () => appInfo.check());
-  route('POST', /^\/api\/app\/update\/install$/, () => {
+  route('POST', /^\/api\/app\/update\/install$/, async (req) => {
     const active = manager.activeLocalPrints();
     if (active.length) throw badRequest(`Aspetta la fine delle stampe in corso (${active.join(', ')}) prima di aggiornare.`);
-    return appInfo.install();
+    const body = await readJsonBody(req);
+    return appInfo.install(body.mode === 'visible' ? 'visible' : 'silent');
   }, { localOnly: true });
+  route('POST', /^\/api\/app\/update\/dismiss$/, () => appInfo.dismiss(), { localOnly: true });
+  route('POST', /^\/api\/app\/update\/log$/, () => appInfo.openLog(), { localOnly: true });
 
   route('GET', /^\/api\/settings$/, () => manager.publicSettings());
   route('PUT', /^\/api\/settings$/, async (req, m, res, auth) => {
@@ -686,11 +689,14 @@ function headlessAppInfo() {
     current: require('../../package.json').version,
     status: 'unsupported',
     version: null, percent: null, error: null, checkedAt: null, portable: false, releaseUrl: null,
+    notes: [], justUpdated: null, installFailed: null, hasLog: false,
   };
   const unsupported = () => { throw badRequest('Gli aggiornamenti automatici funzionano solo nella versione installata di SonoPrint.'); };
   info.getState = () => state;
   info.check = unsupported;
   info.install = unsupported;
+  info.dismiss = () => state;
+  info.openLog = unsupported;
   return info;
 }
 

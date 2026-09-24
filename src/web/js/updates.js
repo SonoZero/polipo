@@ -3,6 +3,7 @@
 import { h, icon, clear, fmtRelative } from './util.js';
 import { api, store, on, printerList } from './api.js';
 import { run, toast } from './ui.js';
+import { openUpdateWizard } from './components/update-wizard.js';
 
 function activePrints() {
   return printerList().filter((p) => p.job).map((p) => p.config.name);
@@ -14,7 +15,14 @@ export function installUpdate(button) {
     toast('warn', 'Stampa in corso', `Aspetta che finisca la stampa su ${active.join(', ')} prima di aggiornare.`);
     return;
   }
-  return run(() => api('POST', '/app/update/install'), { button });
+  // il wizard mostra l'installazione passo per passo (e cosa fare se non parte)
+  openUpdateWizard();
+  return run(() => api('POST', '/app/update/install', { mode: 'silent' }), { button });
+}
+
+/** Controlla subito se c'è una nuova versione, mostrando il wizard. */
+export function checkForUpdates() {
+  openUpdateWizard({ check: true });
 }
 
 export function openReleases() {
@@ -33,11 +41,15 @@ export function createUpdateBanner() {
     if (key === lastKey) return;
     lastKey = key;
     clear(el);
-    el.hidden = !['downloading', 'downloaded', 'available'].includes(a.status);
+    el.hidden = !['downloading', 'downloaded', 'available', 'installing'].includes(a.status);
     if (el.hidden) return;
-    if (a.status === 'downloading') {
+    if (a.status === 'installing') {
       el.append(
-        h('div', { class: 'ub-title' }, icon('download', 'sm'), `Scarico la versione ${a.version}…`),
+        h('button', { class: 'ub-title ub-link', onclick: () => openUpdateWizard() }, h('span', { class: 'spinner' }), `Installo la versione ${a.version}`),
+        h('div', { class: 'ub-text' }, 'SonoPrint si chiude e si riapre da solo.'));
+    } else if (a.status === 'downloading') {
+      el.append(
+        h('button', { class: 'ub-title ub-link', onclick: () => openUpdateWizard() }, icon('download', 'sm'), `Scarico la versione ${a.version}`, h('span', { class: 'ub-pct num' }, `${a.percent || 0}%`)),
         h('div', { class: 'progress', style: { height: '5px' } }, h('div', { style: { width: (a.percent || 0) + '%' } })));
     } else if (a.status === 'downloaded') {
       el.append(
@@ -90,7 +102,7 @@ export function createUpdateSettings() {
             : h('button', {
               class: 'btn',
               disabled: a.status === 'unsupported' || a.status === 'checking' || a.status === 'downloading',
-              onclick: (e) => run(() => api('POST', '/app/update/check'), { button: e.currentTarget }),
+              onclick: () => checkForUpdates(),
             }, icon('refresh'), 'Controlla ora')),
       a.releaseUrl ? h('div', null, h('a', { href: a.releaseUrl, target: '_blank', rel: 'noopener', style: { fontSize: '13px' } }, 'Novità delle versioni su GitHub')) : null,
     ].filter(Boolean));

@@ -138,15 +138,37 @@ function createWindow() {
   win.on('closed', () => { win = null; });
 }
 
-/** Alla prima apertura copia stampanti, file e cronologia di Polipo, il nome precedente dell'app. */
+/**
+ * Alla prima apertura copia stampanti, file e cronologia di Polipo, il nome precedente dell'app.
+ * Una volta sola, solo per SonoPrint (mai per copie di prova con un altro nome) e solo se la
+ * cartella dei dati manca davvero: un errore diverso (file bloccato, permessi) non basta.
+ */
 function migrateFromPolipo() {
-  if (process.env.SONOPRINT_USER_DATA) return;
-  const target = path.join(app.getPath('userData'), 'data');
+  if (process.env.SONOPRINT_USER_DATA || app.getName() !== 'SonoPrint') return;
+  const userData = app.getPath('userData');
+  const target = path.join(userData, 'data');
+  const marker = path.join(userData, 'migrated-from-polipo');
   const old = path.join(app.getPath('appData'), 'Polipo', 'data');
-  if (fs.existsSync(target) || !fs.existsSync(old)) return;
+  if (!missing(target) || !missing(marker) || missing(old)) return;
+  const temp = target + '.migrating';
   try {
-    fs.cpSync(old, target, { recursive: true });
-  } catch (_) { /* si riparte da zero */ }
+    fs.rmSync(temp, { recursive: true, force: true });
+    fs.cpSync(old, temp, { recursive: true });
+    fs.renameSync(temp, target);
+    fs.writeFileSync(marker, new Date().toISOString());
+  } catch (_) {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+/** Vero solo se il percorso non esiste: un file che c'è ma non si riesce a leggere non conta come mancante. */
+function missing(p) {
+  try {
+    fs.statSync(p);
+    return false;
+  } catch (err) {
+    return err.code === 'ENOENT';
+  }
 }
 
 /** Origine attuale dell'interfaccia (cambia se si cambia la porta). */
@@ -169,5 +191,8 @@ app.on('before-quit', (e) => {
   if (quitting || !server) return;
   quitting = true;
   e.preventDefault();
-  server.close().catch(() => {}).finally(() => app.quit());
+  if (updater) updater.prepareQuit();
+  // una stampante che non risponde non deve bloccare la chiusura (e quindi l'installazione di un aggiornamento)
+  const timeout = new Promise((resolve) => setTimeout(resolve, 4000));
+  Promise.race([server.close().catch(() => {}), timeout]).finally(() => app.quit());
 });

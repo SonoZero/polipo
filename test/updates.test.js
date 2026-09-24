@@ -39,6 +39,25 @@ test('note di rilascio: solo testo, titoli ed elenchi', () => {
   assert.deepStrictEqual(notesToBlocks([{ version: '0.3.0', note: '<li>una</li>' }]), [{ type: 'li', text: 'una' }]);
 });
 
+test('configurazione: mai sovrascritta con dati vuoti se non si riesce a leggerla', () => {
+  const { readJsonSafe } = require('../src/server/files');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonoprint-json-'));
+  // mancante: valore iniziale
+  assert.deepStrictEqual(readJsonSafe(path.join(dir, 'assente.json'), { a: 1 }), { a: 1 });
+  // rovinato: valore iniziale e copia del file accanto
+  const broken = path.join(dir, 'config.json');
+  fs.writeFileSync(broken, '{ "printers": [ ');
+  assert.deepStrictEqual(readJsonSafe(broken, {}), {});
+  assert.ok(fs.readdirSync(dir).some((f) => f.startsWith('config.json.rovinato-')));
+  // illeggibile (qui una cartella al posto del file): errore invece di un valore vuoto
+  const locked = path.join(dir, 'bloccato.json');
+  fs.mkdirSync(locked);
+  assert.throws(() => readJsonSafe(locked, {}, { attempts: 2, waitMs: 1 }), /Impossibile leggere bloccato\.json/);
+  // valido
+  fs.writeFileSync(broken, '{"printers":[{"name":"ender"}]}');
+  assert.strictEqual(readJsonSafe(broken, {}).printers[0].name, 'ender');
+});
+
 test('riepilogo degli aggiornamenti per ogni tipo di stampante', () => {
   const k = summarizeFirmware({
     kind: 'klipper', current: { version: 'v0.12.0' }, canInstall: true,

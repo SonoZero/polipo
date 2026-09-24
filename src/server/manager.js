@@ -11,7 +11,7 @@ const { createPrinter, TYPE_NAMES } = require('./printers');
 const { SECRET_FIELDS } = require('./printers/base');
 const { fileKind } = require('./printers/network');
 const { parseHost } = require('./printers/http');
-const { FileStore, readJson, writeJson } = require('./files');
+const { FileStore, readJsonSafe, writeJson } = require('./files');
 const { listPorts, VIRTUAL_PORT } = require('./transport');
 
 const COLORS = ['#ff6a1f', '#3ccf6e', '#4db5ff', '#ffb224', '#b894ff', '#ff4f7b', '#2cc9b4', '#e8e8e8'];
@@ -77,7 +77,7 @@ class PrinterManager extends EventEmitter {
     this.dataDir = dataDir;
     this.configPath = path.join(dataDir, 'config.json');
     this.historyPath = path.join(dataDir, 'history.json');
-    const saved = readJson(this.configPath, {});
+    const saved = readJsonSafe(this.configPath, {});
     this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings || {}) };
     this.settings.port = validPort(this.settings.port) || DEFAULT_PORT;
     this.settings.remote = { ...DEFAULT_SETTINGS.remote, ...(this.settings.remote || {}) };
@@ -85,7 +85,7 @@ class PrinterManager extends EventEmitter {
     if (this.settings.remote.enabled && !this.settings.developer) this.settings.developer = true;
     const needsKey = !this.settings.remote.key;
     if (needsKey) this.settings.remote.key = newRemoteKey();
-    this.history = readJson(this.historyPath, []);
+    this.history = readJsonSafe(this.historyPath, []);
     this.printers = new Map();
     this.order = [];
 
