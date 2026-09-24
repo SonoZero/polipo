@@ -1,6 +1,6 @@
 # 🐙 Polipo
 
-**Polipo** è un'app per Windows che controlla **più stampanti 3D contemporaneamente** via USB, in stile [OctoPrint](https://octoprint.org), con un'**app per il telefono** per seguirle anche da lontano.
+**Polipo** è un'app per Windows che controlla **più stampanti 3D contemporaneamente** via USB, in stile [OctoPrint](https://octoprint.org).
 Il nome viene da *octopus* → polipo, e *poli-* = più stampanti.
 
 *made by zonozero*
@@ -20,7 +20,7 @@ Il nome viene da *octopus* → polipo, e *poli-* = più stampanti.
 - **Tempo rimanente e ora di fine** (usa i comandi M73 di PrusaSlicer/Orca, i commenti di Cura o la stima dello slicer).
 - **Webcam** USB collegata al PC oppure flusso MJPEG/snapshot di rete.
 - **Cronologia** delle stampe con statistiche, **notifiche di Windows** a fine stampa, blocco della **sospensione** del PC durante la stampa.
-- **App per iPhone e Android** ([`mobile/`](mobile/README.md)): stato, controllo e avvio delle stampe dal telefono, abbinata con un QR code.
+- **Accesso dal telefono**: abbinamento con un QR code e accesso protetto da una chiave segreta.
 - **Porta dell'interfaccia modificabile** dalle Impostazioni, senza interrompere le stampe.
 - **Stampante virtuale** che simula un firmware Marlin, per provare tutto senza stampante.
 
@@ -42,7 +42,7 @@ Se la connessione non riesce:
 
 ## Accesso dal telefono
 
-In **Impostazioni → Accesso dal telefono** Polipo si apre alla rete di casa e mostra un QR code da inquadrare con l'[app Polipo](mobile/README.md).
+In **Impostazioni → Accesso dal telefono** Polipo si apre alla rete di casa e mostra un QR code da inquadrare con l'app Polipo per il telefono.
 
 - L'accesso è protetto da una **chiave segreta** casuale contenuta nel QR code; si può rigenerare in qualsiasi momento (i telefoni abbinati andranno riabbinati).
 - Dalla rete si raggiungono solo le API per l'app: la pagina web di Polipo, la porta e le impostazioni di rete restano accessibili **solo dal PC**.
@@ -99,7 +99,6 @@ src/
     files.js              archivio G-code e analisi dei file
     gcode.js              parsing di risposte e file G-code
   web/                    interfaccia (HTML/CSS/JS senza framework)
-mobile/                   app per il telefono (Expo / React Native)
 test/                     test automatici (node --test)
 ```
 

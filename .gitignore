@@ -5,3 +5,6 @@ samples/
 .claude/
 *.log
 Thumbs.db
+
+# app per il telefono: resta solo in locale, non si pubblica su GitHub
+mobile/
