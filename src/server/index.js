@@ -156,14 +156,16 @@ async function startServer(options = {}) {
     const body = await readJsonBody(req);
     // porta e accesso remoto si cambiano solo dal PC
     if (!auth.local) { delete body.port; delete body.remote; }
-    let port = current.port;
     if ('port' in body) {
-      port = validPort(body.port);
+      const port = validPort(body.port);
       if (!port) throw badRequest('La porta deve essere un numero tra 1024 e 65535.');
-      if (port === manager.settings.port && !portFallback) port = current.port; // non cambiata
+      // solo se l'utente l'ha davvero cambiata (o se all'avvio era occupata)
+      if ((port !== manager.settings.port || portFallback) && port !== desired.port) await changePort(port);
     }
-    const host = 'remote' in body ? (body.remote && body.remote.enabled ? ANY_HOST : LOCAL_HOST) : current.host;
-    if (port !== current.port || host !== current.host) await moveListener(port, host);
+    if ('remote' in body) {
+      const host = body.remote && body.remote.enabled ? ANY_HOST : LOCAL_HOST;
+      if (host !== desired.host) changeHost(host);
+    }
     return manager.updateSettings(body);
   });
 
@@ -440,47 +442,64 @@ async function startServer(options = {}) {
     });
   }
 
+  // I cambi di porta/interfaccia vengono eseguiti uno alla volta, ciascuno sullo stato
+  // più recente: così cambi rapidi (es. accesso remoto acceso e spento subito) non
+  // lasciano server "orfani" in ascolto.
+  let queue = Promise.resolve();
+  function serial(task) {
+    const run = queue.then(task, task);
+    queue = run.catch(() => {});
+    return run;
+  }
+
   /**
-   * Sposta il server su un'altra porta o interfaccia senza fermare le stampanti.
-   * Con una porta nuova la apre prima di chiudere la vecchia (se è occupata non cambia nulla);
+   * Nuova porta: la apre subito (se è occupata risponde con un errore e non cambia nulla);
    * la vecchia si chiude poco dopo, così la risposta a questa richiesta arriva comunque.
    */
-  async function moveListener(port, host) {
-    const old = current;
-    const portChanged = port !== old.port;
-    if (portChanged) {
+  function changePort(port) {
+    return serial(async () => {
+      const old = current;
+      if (old.port === port) return;
       let s;
       try {
-        s = await bind(port, host);
+        s = await bind(port, old.host);
       } catch (err) {
         throw badRequest(err.code === 'EADDRINUSE'
           ? `La porta ${port} è già usata da un altro programma. Scegline un'altra.`
           : `Impossibile usare la porta ${port}: ${err.message}`);
       }
-      current = { server: s, port, host };
+      current = { server: s, port, host: old.host };
+      desired.port = port;
       portFallback = false;
       // i client ricevono la nuova porta prima che la vecchia venga chiusa
       broadcast({ type: 'network', network: networkInfo() });
-      setTimeout(async () => {
+      events.emit('url-changed', localUrl(port));
+      serial(async () => {
+        await sleep(700);
         for (const ws of clients) ws.terminate();
         await closeServer(old.server);
-      }, 700);
-    } else {
-      // stessa porta ma da aprire/chiudere alla rete: bisogna chiudere prima di riaprire
-      current = { ...old, host };
-      setTimeout(async () => {
-        await closeServer(old.server);
-        try {
-          current = { server: await bind(port, host), port, host };
-        } catch (err) {
-          current = { server: await bind(port, old.host), port, host: old.host };
-          events.emit('notify', { level: 'error', title: 'Polipo', message: 'Impossibile aprire Polipo alla rete: ' + err.message });
-        }
-        if (current.host === LOCAL_HOST) dropRemoteClients();
-        broadcast({ type: 'network', network: networkInfo() });
-      }, 400);
-    }
-    if (portChanged) events.emit('url-changed', localUrl(port));
+      });
+    });
+  }
+
+  /** Apre o chiude Polipo alla rete (stessa porta: bisogna chiudere prima di riaprire). */
+  function changeHost(host) {
+    desired.host = host;
+    serial(async () => {
+      await sleep(400); // lascia partire la risposta a questa richiesta
+      if (current.host === host) return;
+      const old = current;
+      await closeServer(old.server);
+      try {
+        current = { server: await bind(old.port, host), port: old.port, host };
+      } catch (err) {
+        current = { server: await bind(old.port, old.host), port: old.port, host: old.host };
+        desired.host = old.host;
+        events.emit('notify', { level: 'error', title: 'Polipo', message: 'Impossibile aprire Polipo alla rete: ' + err.message });
+      }
+      if (current.host === LOCAL_HOST) dropRemoteClients();
+      broadcast({ type: 'network', network: networkInfo() });
+    });
   }
 
   await manager.init();
@@ -496,6 +515,8 @@ async function startServer(options = {}) {
     current = { server: s, port: s.address().port, host: startHost };
     portFallback = true;
   }
+  // dove il server sta andando (può essere avanti rispetto a "current" se ci sono cambi in coda)
+  const desired = { port: current.port, host: current.host };
 
   return {
     get url() { return localUrl(); },
@@ -505,6 +526,7 @@ async function startServer(options = {}) {
     events,
     async close() {
       clearInterval(logTimer);
+      await queue;
       for (const ws of clients) ws.terminate();
       await manager.shutdown();
       await closeServer(current.server);
@@ -536,6 +558,10 @@ function allowedHost(h) {
 
 function isLoopback(addr) {
   return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function validPort(v) {

@@ -124,6 +124,39 @@ test('accesso dal telefono con la chiave', async () => {
   }
 });
 
+function canConnect(host, port) {
+  return new Promise((resolve) => {
+    const s = net.connect({ host, port, timeout: 1500 });
+    s.once('connect', () => { s.destroy(); resolve(true); });
+    s.once('error', () => resolve(false));
+    s.once('timeout', () => { s.destroy(); resolve(false); });
+  });
+}
+
+test('accesso remoto acceso e spento più volte di fila: nessun server orfano', async () => {
+  const ip = lanIp();
+  const srv = await startServer({ dataDir: tmpDir(), port: 0 });
+  const base = `http://127.0.0.1:${srv.port}`;
+  const T = { 'X-Polipo-Token': srv.token };
+  try {
+    for (const enabled of [true, false, true, false, true, false]) {
+      const r = await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { remote: { enabled } } });
+      assert.strictEqual(r.status, 200);
+    }
+    await sleep(3500); // attende che la coda dei cambi sia finita
+    assert.strictEqual(srv.manager.settings.remote.enabled, false);
+    assert.strictEqual((await call(`${base}/api/printers`, { headers: T })).status, 200);
+    if (ip) assert.strictEqual(await canConnect(ip, srv.port), false, 'dalla rete non deve rispondere nessuno');
+
+    await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { remote: { enabled: true } } });
+    await sleep(900);
+    if (ip) assert.strictEqual(await canConnect(ip, srv.port), true);
+    assert.strictEqual((await call(`${base}/api/printers`, { headers: T })).status, 200);
+  } finally {
+    await srv.close();
+  }
+});
+
 test('cambio della porta dalle impostazioni', async () => {
   const srv = await startServer({ dataDir: tmpDir(), port: 0 });
   const oldPort = srv.port;
