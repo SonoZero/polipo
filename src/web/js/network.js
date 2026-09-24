@@ -1,6 +1,6 @@
 // Impostazioni di rete: porta dell'interfaccia e accesso dall'app del telefono.
 
-import { h, icon, clear } from './util.js';
+import { h, icon, clear, IS_MAC } from './util.js';
 import { api, store, on } from './api.js';
 import { run, toast, confirmDialog } from './ui.js';
 import { check } from './views/printer-form.js';
@@ -65,7 +65,7 @@ export function createRemoteSettings() {
         run(() => api('PUT', '/settings', { remote: { enabled: v } }), { success: v ? 'Accesso dal telefono attivato' : 'Accesso dal telefono disattivato' });
       }),
       h('div', { class: 'hint faint', style: { fontSize: '12px' } },
-        'SonoPrint si apre alla rete di casa, protetto da una chiave segreta che conosce solo il tuo telefono. La pagina web e le impostazioni di rete restano accessibili solo da questo PC.'));
+        'SonoPrint si apre alla rete di casa, protetto da una chiave segreta che conosce solo il tuo telefono. La pagina web e le impostazioni di rete restano accessibili solo da questo computer.'));
     if (!enabled) { pairing = null; return; }
     if (!pairing) { loadPairing(); el.append(h('div', { class: 'dim' }, 'Preparo il codice di abbinamento…')); return; }
 
@@ -75,7 +75,7 @@ export function createRemoteSettings() {
         h('span', { class: 'badge plain' }, { tailscale: 'Tailscale', vpn: 'VPN' }[a.kind] || 'Rete di casa'),
         h('span', { class: 'mono' }, `${a.address}:${pairing.port}`),
         h('span', { class: 'faint', style: { fontSize: '12px' } }, a.name)))
-      : [h('div', { class: 'alert warn' }, icon('alert', 'sm'), h('div', null, 'Questo PC non sembra collegato a una rete: collegalo al Wi-Fi o via cavo.'))];
+      : [h('div', { class: 'alert warn' }, icon('alert', 'sm'), h('div', null, 'Questo computer non sembra collegato a una rete: collegalo al Wi-Fi o via cavo.'))];
 
     el.append(h('div', { class: 'pair-grid' },
       h('div', { class: 'stack', style: { alignItems: 'center', gap: '8px' } }, qr,
@@ -83,9 +83,11 @@ export function createRemoteSettings() {
       h('div', { class: 'stack' },
         h('ol', { class: 'steps-list' },
           h('li', null, 'Apri l\'app ', h('b', null, 'SonoPrint'), ' sul telefono e tocca ', h('b', null, 'Abbina con QR code'), '.'),
-          h('li', null, 'Inquadra il codice qui accanto. Telefono e PC devono essere sulla stessa rete Wi-Fi.'),
-          h('li', null, 'Se Windows chiede di consentire l\'accesso alla rete a SonoPrint, scegli ', h('b', null, 'Reti private'), '.'),
-          h('li', null, 'Fuori casa: installa ', h('a', { href: 'https://tailscale.com/download', target: '_blank', rel: 'noopener' }, 'Tailscale'), ' (gratis) su PC e telefono; poi abbina di nuovo e l\'app userà anche l\'indirizzo Tailscale.')),
+          h('li', null, 'Inquadra il codice qui accanto. Telefono e computer devono essere sulla stessa rete Wi-Fi.'),
+          IS_MAC
+            ? h('li', null, 'Se macOS chiede di permettere a SonoPrint di trovare dispositivi nella rete locale, scegli ', h('b', null, 'Consenti'), '.')
+            : h('li', null, 'Se Windows chiede di consentire l\'accesso alla rete a SonoPrint, scegli ', h('b', null, 'Reti private'), '.'),
+          h('li', null, 'Fuori casa: installa ', h('a', { href: 'https://tailscale.com/download', target: '_blank', rel: 'noopener' }, 'Tailscale'), ' (gratis) su computer e telefono; poi abbina di nuovo e l\'app userà anche l\'indirizzo Tailscale.')),
         h('div', { class: 'field' }, h('label', null, `Indirizzi di ${pairing.hostname}`), ...addresses),
         h('div', { class: 'field' },
           h('label', null, 'Chiave di accesso'),

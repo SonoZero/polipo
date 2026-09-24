@@ -104,6 +104,13 @@ async function listPorts() {
   } catch (_) {
     ports = [];
   }
+  if (process.platform === 'darwin') {
+    // su macOS ogni porta c'è due volte: si usa /dev/cu.* (la /dev/tty.* aspetta un segnale che le stampanti non danno)
+    ports = ports
+      .map((p) => ({ ...p, path: String(p.path).replace(/^\/dev\/tty\./, '/dev/cu.') }))
+      .filter((p, i, all) => all.findIndex((q) => q.path === p.path) === i)
+      .filter((p) => !/Bluetooth-Incoming-Port|debug-console|wlan-debug/i.test(p.path));
+  }
   const out = ports.map((p) => ({
     path: p.path,
     label: p.friendlyName || [p.manufacturer, p.path].filter(Boolean).join(' '),

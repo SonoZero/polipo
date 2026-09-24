@@ -305,7 +305,7 @@ export async function createInteractive3D(box) {
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   } catch (_) {
-    throw new Error('L\'anteprima 3D non è disponibile su questo PC (WebGL non attivo).');
+    throw new Error('L\'anteprima 3D non è disponibile su questo computer (WebGL non attivo).');
   }
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));

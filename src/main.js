@@ -9,6 +9,8 @@ const { startServer } = require('./server');
 const { Updater } = require('./updater');
 
 const ICON = path.join(__dirname, '..', 'build', 'icon.png');
+// su Mac chiudendo la finestra SonoPrint resta nel Dock (e le stampe USB continuano); si esce con Cmd+Q
+const IS_MAC = process.platform === 'darwin';
 
 let server = null;
 let updater = null;
@@ -23,12 +25,7 @@ if (!app.requestSingleInstanceLock()) {
   // SonoPrint è già aperto: porta in primo piano quella finestra
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
-  });
+  app.on('second-instance', () => showWindow());
   app.whenReady().then(start).catch((err) => {
     dialog.showErrorBox('SonoPrint non si è avviato', String(err && err.stack || err));
     app.quit();
@@ -37,7 +34,8 @@ if (!app.requestSingleInstanceLock()) {
 
 async function start() {
   app.setAppUserModelId('com.sonozero.sonoprint');
-  Menu.setApplicationMenu(null);
+  Menu.setApplicationMenu(IS_MAC ? macMenu() : null);
+  if (IS_MAC) app.setAboutPanelOptions({ applicationName: 'SonoPrint', applicationVersion: app.getVersion(), copyright: 'made by sonozero' });
 
   migrateFromPolipo();
   updater = new Updater(app);
@@ -57,7 +55,7 @@ async function start() {
       body: `La versione ${s.version} verrà installata al prossimo riavvio.`,
       icon: nativeImage.createFromPath(ICON),
     });
-    notif.on('click', () => { if (win) { win.show(); win.focus(); } });
+    notif.on('click', () => showWindow());
     notif.show();
   });
   updater.init();
@@ -74,12 +72,7 @@ async function start() {
   server.events.on('notify', (n) => {
     if (n.quiet || !server.manager.settings.notifications || !Notification.isSupported()) return;
     const notif = new Notification({ title: n.title || 'SonoPrint', body: n.message || '', icon: nativeImage.createFromPath(ICON) });
-    notif.on('click', () => {
-      if (!win) return;
-      win.show();
-      win.focus();
-      if (n.printerId) win.webContents.executeJavaScript(`location.hash = '#/printer/${String(n.printerId).replace(/[^\w-]/g, '')}'`);
-    });
+    notif.on('click', () => showWindow(n.printerId ? `#/printer/${String(n.printerId).replace(/[^\w-]/g, '')}` : null));
     notif.show();
   });
 
@@ -120,22 +113,85 @@ function createWindow() {
     }
   });
 
+  // su Windows chiudere la finestra chiude SonoPrint: prima si chiede conferma se una stampa USB è in corso
   win.on('close', (e) => {
-    if (quitting || !server) return;
-    const active = server.manager.activeLocalPrints();
-    if (!active.length) return;
-    const choice = dialog.showMessageBoxSync(win, {
-      type: 'warning',
-      title: 'Stampe in corso',
-      message: `Stampa in corso su: ${active.join(', ')}.`,
-      detail: 'Le stampanti USB ricevono la stampa riga per riga da SonoPrint: se lo chiudi, quelle stampe si interrompono. Le stampanti in rete continuano da sole.\nVuoi davvero uscire?',
-      buttons: ['Non chiudere', 'Esci e interrompi le stampe'],
-      defaultId: 0,
-      cancelId: 0,
-    });
-    if (choice === 0) e.preventDefault();
+    if (IS_MAC || quitting || !server) return;
+    if (!confirmStopPrints()) e.preventDefault();
   });
   win.on('closed', () => { win = null; });
+}
+
+/** Mostra la finestra (ricreandola se su Mac era stata chiusa), eventualmente su una pagina. */
+function showWindow(hash) {
+  if (!server) return;
+  const go = () => { if (hash && win) win.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`); };
+  if (!win) {
+    createWindow();
+    win.webContents.once('did-finish-load', go);
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  go();
+}
+
+/** Vero se si può uscire: nessuna stampa USB in corso, oppure l'utente conferma di interromperle. */
+function confirmStopPrints() {
+  const active = server ? server.manager.activeLocalPrints() : [];
+  if (!active.length) return true;
+  const options = {
+    type: 'warning',
+    title: 'Stampe in corso',
+    message: `Stampa in corso su: ${active.join(', ')}.`,
+    detail: 'Le stampanti USB ricevono la stampa riga per riga da SonoPrint: se lo chiudi, quelle stampe si interrompono. Le stampanti in rete continuano da sole.\nVuoi davvero uscire?',
+    buttons: ['Non chiudere', 'Esci e interrompi le stampe'],
+    defaultId: 0,
+    cancelId: 0,
+  };
+  return (win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options)) === 1;
+}
+
+/** Menu dell'app su Mac: senza, non funzionerebbero nemmeno Cmd+C, Cmd+V e Cmd+Q. */
+function macMenu() {
+  return Menu.buildFromTemplate([
+    { label: 'SonoPrint', submenu: [
+      { role: 'about', label: 'Informazioni su SonoPrint' },
+      { type: 'separator' },
+      { label: 'Impostazioni...', accelerator: 'Cmd+,', click: () => showWindow('#/settings') },
+      { label: 'Aggiornamenti', click: () => showWindow('#/updates') },
+      { type: 'separator' },
+      { role: 'hide', label: 'Nascondi SonoPrint' },
+      { role: 'hideOthers', label: 'Nascondi altre' },
+      { role: 'unhide', label: 'Mostra tutte' },
+      { type: 'separator' },
+      { role: 'quit', label: 'Esci da SonoPrint' },
+    ] },
+    { label: 'Modifica', submenu: [
+      { role: 'undo', label: 'Annulla' },
+      { role: 'redo', label: 'Ripeti' },
+      { type: 'separator' },
+      { role: 'cut', label: 'Taglia' },
+      { role: 'copy', label: 'Copia' },
+      { role: 'paste', label: 'Incolla' },
+      { role: 'selectAll', label: 'Seleziona tutto' },
+    ] },
+    { label: 'Vista', submenu: [
+      { role: 'reload', label: 'Ricarica' },
+      { role: 'togglefullscreen', label: 'Schermo intero' },
+      { type: 'separator' },
+      { role: 'resetZoom', label: 'Dimensioni reali' },
+      { role: 'zoomIn', label: 'Ingrandisci' },
+      { role: 'zoomOut', label: 'Riduci' },
+    ] },
+    { label: 'Finestra', role: 'window', submenu: [
+      { role: 'minimize', label: 'Contrai' },
+      { role: 'zoom', label: 'Ridimensiona' },
+      { label: 'Mostra SonoPrint', accelerator: 'Cmd+0', click: () => showWindow() },
+      { type: 'separator' },
+      { role: 'front', label: 'Porta tutto in primo piano' },
+    ] },
+  ]);
 }
 
 /**
@@ -185,10 +241,17 @@ function updateSleepBlocker() {
   }
 }
 
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => { if (!IS_MAC) app.quit(); });
+// clic sull'icona nel Dock con la finestra chiusa
+app.on('activate', () => showWindow());
 
 app.on('before-quit', (e) => {
   if (quitting || !server) return;
+  // su Mac Cmd+Q è l'unico modo di uscire: la conferma per le stampe USB va chiesta qui
+  if (IS_MAC && !(updater && updater.state.status === 'installing') && !confirmStopPrints()) {
+    e.preventDefault();
+    return;
+  }
   quitting = true;
   e.preventDefault();
   if (updater) updater.prepareQuit();

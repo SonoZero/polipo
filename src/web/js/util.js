@@ -122,6 +122,9 @@ export function fmtPct(p) {
   return (Math.floor(p * 1000) / 10).toFixed(1).replace('.', ',') + '%';
 }
 
+/** Interfaccia aperta su un Mac (alcuni testi e comandi cambiano). */
+export const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '');
+
 export const STATE_LABELS = {
   offline: 'Non connessa',
   connecting: 'Connessione…',
@@ -159,7 +162,7 @@ export function debounce(fn, ms) {
 // --- tipi di stampante ------------------------------------------------------------
 
 export const PRINTER_TYPES = {
-  usb: { label: 'USB', icon: 'usb', desc: 'Marlin, Prusa, RepRap: collegata al PC con il cavo.' },
+  usb: { label: 'USB', icon: 'usb', desc: 'Marlin, Prusa, RepRap: collegata al computer con il cavo.' },
   bambu: { label: 'Bambu Lab', icon: 'wifi', desc: 'X1, P1, A1 e H2 in rete locale.' },
   klipper: { label: 'Klipper', icon: 'chip', desc: 'Moonraker, Mainsail o Fluidd: Creality K1, Sovol SV08, Voron.' },
   prusalink: { label: 'PrusaLink', icon: 'network', desc: 'Prusa MK4, Core One, MINI+ e XL in rete.' },

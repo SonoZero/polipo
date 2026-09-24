@@ -103,13 +103,13 @@ export function createFirmware(id) {
       const f = e.target.files[0];
       e.target.value = '';
       if (!f) return;
-      if (!drive) return toast('warn', 'Inserisci la scheda SD della stampante nel PC');
+      if (!drive) return toast('warn', 'Inserisci la scheda SD della stampante nel computer');
       const r = await run(() => uploadTo(`/printers/${id}/firmware/upload?name=${encodeURIComponent(f.name)}&drive=${encodeURIComponent(drive)}&naming=${naming}`, f));
-      if (r && r.name) toast('success', 'Firmware copiato', `${r.drive}\\${r.name}`);
+      if (r && r.name) toast('success', 'Firmware copiato', `${r.drive}${r.drive.startsWith('/') ? '/' : '\\'}${r.name}`);
     } });
     return h('div', { class: 'stack tight' },
       h('div', { style: { fontWeight: 600, marginTop: '6px' } }, 'Schede a 32 bit: file .bin sulla scheda SD'),
-      h('div', { class: 'dim', style: { fontSize: '13px' } }, 'Inserisci nel PC la scheda SD della stampante: SonoPrint copia il file con il nome giusto. Poi rimetti la scheda nella stampante spenta e accendila.'),
+      h('div', { class: 'dim', style: { fontSize: '13px' } }, 'Inserisci nel computer la scheda SD della stampante: SonoPrint copia il file con il nome giusto. Poi rimetti la scheda nella stampante spenta e accendila.'),
       h('div', { class: 'grid-2' },
         h('div', { class: 'input-group' }, driveSel, h('button', { class: 'btn icon-only', title: 'Cerca schede SD', 'aria-label': 'Cerca schede SD', onclick: async () => fillDrives((await run(() => api('GET', '/drives'))) || []) }, icon('refresh'))),
         namingSel),

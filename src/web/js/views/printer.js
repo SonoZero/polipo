@@ -631,7 +631,7 @@ function createPrinterSettings(id) {
   const updateCam = () => { camLocal.hidden = cfg.webcam.type !== 'local'; camUrl.hidden = cfg.webcam.type !== 'url'; if (cfg.webcam.type === 'local') loadCams(); };
   const camType = h('select', { class: 'select', onchange: (e) => { cfg.webcam.type = e.target.value; updateCam(); } },
     h('option', { value: 'none' }, 'Nessuna'),
-    h('option', { value: 'local' }, 'Webcam USB collegata al PC'),
+    h('option', { value: 'local' }, 'Webcam USB collegata al computer'),
     h('option', { value: 'url' }, 'Flusso di rete (URL)'));
   camType.value = cfg.webcam.type;
   const rotate = h('select', { class: 'select', onchange: (e) => { cfg.webcam.rotate = Number(e.target.value); } },

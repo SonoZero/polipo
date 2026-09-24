@@ -245,7 +245,7 @@ class BambuPrinter extends NetworkPrinter {
       return `La stampante all'indirizzo ${this.address} rifiuta la connessione. Sulla stampante attiva "Modalità solo LAN" e "Modalità sviluppatore".`;
     }
     if (code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' || /timeout/i.test(msg)) {
-      return `La stampante all'indirizzo ${this.address} non risponde. È accesa e collegata alla stessa rete del PC?`;
+      return `La stampante all'indirizzo ${this.address} non risponde. È accesa e collegata alla stessa rete del computer?`;
     }
     return msg;
   }

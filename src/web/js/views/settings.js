@@ -37,7 +37,7 @@ export function mountSettings(container) {
   const themeSeg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Tema' });
   const renderTheme = () => {
     clear(themeSeg);
-    for (const [v, label, ic] of [['dark', 'Scuro', 'moon'], ['light', 'Chiaro', 'sun'], ['system', 'Come Windows', 'monitor']]) {
+    for (const [v, label, ic] of [['dark', 'Scuro', 'moon'], ['light', 'Chiaro', 'sun'], ['system', 'Come il sistema', 'monitor']]) {
       themeSeg.appendChild(h('button', { class: getThemePref() === v ? 'active' : '', onclick: () => { applyTheme(v); renderTheme(); } }, icon(ic, 'sm'), ' ', label));
     }
   };
@@ -90,13 +90,13 @@ export function mountSettings(container) {
       card('Aspetto', h('div', { class: 'field' }, h('label', null, 'Tema'), themeSeg)),
       card('Materiali per il preriscaldamento', presetsBox),
       card('Notifiche e risparmio energetico',
-        check('Notifiche di Windows quando una stampa finisce o si interrompe', s.notifications, (v) => {
+        check('Notifiche del sistema quando una stampa finisce o si interrompe', s.notifications, (v) => {
           s.notifications = v;
           if (v && !isElectron && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
         }),
         notifHint,
-        check('Impedisci a Windows di andare in sospensione mentre stampa una stampante USB', s.preventSleep, (v) => { s.preventSleep = v; }),
-        h('div', { class: 'hint' }, 'Le stampanti USB ricevono la stampa dal PC riga per riga: se il PC va in sospensione o chiudi SonoPrint, la stampa si ferma. Le stampanti in rete continuano da sole.')),
+        check('Impedisci al computer di andare in sospensione mentre stampa una stampante USB', s.preventSleep, (v) => { s.preventSleep = v; }),
+        h('div', { class: 'hint' }, 'Le stampanti USB ricevono la stampa dal computer riga per riga: se il computer va in sospensione o chiudi SonoPrint, la stampa si ferma. Le stampanti in rete continuano da sole.')),
       h('div', null, h('button', {
         class: 'btn primary',
         onclick: (e) => run(() => api('PUT', '/settings', { presets: s.presets, notifications: s.notifications, preventSleep: s.preventSleep }), { button: e.currentTarget, success: 'Impostazioni salvate' }),

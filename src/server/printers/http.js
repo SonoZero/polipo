@@ -160,7 +160,7 @@ function networkError(err, host) {
   const code = err && (err.code || (err.cause && err.cause.code));
   if (code === 'ECONNREFUSED') return `La stampante all'indirizzo ${host} rifiuta la connessione: controlla indirizzo e porta.`;
   if (code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' || code === 'EHOSTDOWN' || /timeout/i.test(String(err && err.message))) {
-    return `La stampante all'indirizzo ${host} non risponde. È accesa e collegata alla stessa rete del PC?`;
+    return `La stampante all'indirizzo ${host} non risponde. È accesa e collegata alla stessa rete del computer?`;
   }
   if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return `L'indirizzo ${host} non esiste nella rete.`;
   return `Errore di rete con ${host}: ${err && err.message ? err.message : err}`;

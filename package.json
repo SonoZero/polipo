@@ -2,7 +2,7 @@
   "name": "sonoprint",
   "productName": "SonoPrint",
   "version": "0.3.1",
-  "description": "Controllo di più stampanti 3D da Windows: USB, Bambu Lab, Klipper, PrusaLink e OctoPrint",
+  "description": "Controllo di più stampanti 3D da Windows e Mac: USB, Bambu Lab, Klipper, PrusaLink e OctoPrint",
   "main": "src/main.js",
   "author": "sonozero",
   "license": "MIT",
@@ -15,7 +15,8 @@
     "start": "electron .",
     "server": "node scripts/server.js",
     "test": "node --test \"test/*.test.js\"",
-    "dist": "electron-builder --win nsis portable --publish never"
+    "dist": "electron-builder --win nsis portable --publish never",
+    "dist:mac": "electron-builder --mac --publish never"
   },
   "dependencies": {
     "basic-ftp": "^6.2.1",
@@ -58,6 +59,42 @@
     ],
     "win": {
       "icon": "build/icon.png"
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "SonoPrint-${version}-${arch}-mac.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "SonoPrint usa la webcam per mostrarti la stampante mentre stampa.",
+        "NSLocalNetworkUsageDescription": "SonoPrint cerca e controlla le stampanti 3D nella rete di casa.",
+        "NSBonjourServices": [
+          "_octoprint._tcp",
+          "_moonraker._tcp"
+        ]
+      }
+    },
+    "dmg": {
+      "artifactName": "SonoPrint-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

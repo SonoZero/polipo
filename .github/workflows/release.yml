@@ -1,23 +1,35 @@
-# Crea una nuova versione di SonoPrint quando viene pubblicato un tag "v*" (es. v0.2.0):
-# compila installer e portable per Windows e li carica in una Release di GitHub.
-# L'app installata la trova da sola e si aggiorna.
+# Crea una nuova versione di SonoPrint quando viene pubblicato un tag "v*" (es. v0.4.0):
+# compila Windows (installer e portable) e Mac (Apple Silicon e Intel, firmato e notarizzato)
+# e mette tutto in una sola Release di GitHub. Le app installate la trovano da sole e si aggiornano.
+#
+# Avvio manuale (Actions > Release > Run workflow): compila Windows e Mac senza pubblicare,
+# i file restano scaricabili dalla pagina del workflow.
+#
+# Segreti per il Mac (Settings > Secrets and variables > Actions):
+#   MAC_CERTIFICATE           certificato "Developer ID Application" (.p12) in base64
+#   MAC_CERTIFICATE_PASSWORD  password del .p12
+#   APPLE_API_KEY             contenuto del file AuthKey_XXXX.p8 (App Store Connect API)
+#   APPLE_API_KEY_ID          Key ID della chiave
+#   APPLE_API_ISSUER          Issuer ID
+# Senza segreti la versione per Mac si compila lo stesso ma non firmata, e non viene pubblicata.
 
 name: Release
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
 
-      # niente cache npm: questo job pubblica i file che gli utenti installano
+      # niente cache npm: questo job produce i file che gli utenti installano
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -29,6 +41,7 @@ jobs:
         run: npm test
 
       - name: Controlla che il tag corrisponda alla versione
+        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           version="v$(node -p "require('./package.json').version")"
@@ -40,16 +53,111 @@ jobs:
       - name: Compila installer e portable
         run: npm run dist
 
-      # una sola Release con tutti i file: se è electron-builder a pubblicare, installer e
-      # portable vengono caricati in parallelo e a volte nascono due Release con lo stesso tag
-      - name: Pubblica la Release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sonoprint-windows
+          if-no-files-found: error
+          path: |
+            dist/SonoPrint-Setup-*.exe
+            dist/SonoPrint-Setup-*.exe.blockmap
+            dist/SonoPrint-Portable-*.exe
+            dist/latest.yml
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Installa le dipendenze
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Firma e notarizzazione
+        id: signing
         shell: bash
+        env:
+          MAC_CERTIFICATE: ${{ secrets.MAC_CERTIFICATE }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ -n "$MAC_CERTIFICATE" ] && [ -n "$MAC_CERTIFICATE_PASSWORD" ] && [ -n "$APPLE_API_KEY_CONTENT" ] && [ -n "$APPLE_API_KEY_ID" ] && [ -n "$APPLE_API_ISSUER" ]; then
+            mkdir -p "$RUNNER_TEMP/apple"
+            printf '%s' "$APPLE_API_KEY_CONTENT" > "$RUNNER_TEMP/apple/AuthKey.p8"
+            echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/apple/AuthKey.p8" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Segreti per la firma Apple mancanti: la versione per Mac viene compilata non firmata e non sarà pubblicata."
+          fi
+
+      - name: Compila per Mac (firmata e notarizzata)
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ env.APPLE_API_KEY_PATH }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npx electron-builder --mac --publish never
+
+      - name: Compila per Mac (non firmata, solo prova)
+        if: steps.signing.outputs.signed != 'true'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --mac --publish never
+
+      - name: Controlla firma e notarizzazione
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          for app in dist/mac*/SonoPrint.app; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+            xcrun stapler validate "$app"
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.signing.outputs.signed == 'true' && 'sonoprint-mac' || 'sonoprint-mac-non-firmata' }}
+          if-no-files-found: error
+          path: |
+            dist/SonoPrint-*.dmg
+            dist/SonoPrint-*.dmg.blockmap
+            dist/SonoPrint-*-mac.zip
+            dist/SonoPrint-*-mac.zip.blockmap
+            dist/latest-mac.yml
+
+  # una sola Release con tutti i file: Windows sempre, Mac solo se firmato
+  publish:
+    needs: [windows, mac]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: sonoprint-windows
+          path: files
+
+      - uses: actions/download-artifact@v8
+        id: mac
+        continue-on-error: true
+        with:
+          name: sonoprint-mac
+          path: files
+
+      - name: Pubblica la Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="$(node -p "require('./package.json').version")"
-          gh release create "$GITHUB_REF_NAME" --title "$version" --verify-tag \
-            "dist/SonoPrint-Setup-$version.exe" \
-            "dist/SonoPrint-Setup-$version.exe.blockmap" \
-            "dist/SonoPrint-Portable-$version.exe" \
-            dist/latest.yml
+          if [ "${{ steps.mac.outcome }}" != "success" ]; then
+            echo "::warning::Release senza la versione per Mac (non firmata): aggiungi i segreti Apple e crea una nuova versione."
+          fi
+          ls -la files
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "${GITHUB_REF_NAME#v}" --verify-tag files/*

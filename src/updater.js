@@ -35,6 +35,7 @@ class Updater extends EventEmitter {
       error: null,
       checkedAt: null,
       portable: this.portable,
+      platform: process.platform,
       releaseUrl: releasesUrl(),
       notes: [], // novità della nuova versione: [{ type: 'h' | 'li' | 'p', text }]
       releaseDate: null,
@@ -138,7 +139,8 @@ class Updater extends EventEmitter {
     if (!this.autoUpdater || !ready) {
       throw new Error('Nessun aggiornamento pronto da installare.');
     }
-    const visible = mode === 'visible';
+    // su Mac non c'è una finestra dell'installer: l'app si sostituisce e si riapre da sola
+    const visible = mode === 'visible' && process.platform === 'win32';
     this._writePending(visible ? 'visible' : 'silent');
     this.log('info', `Installazione della versione ${this.state.version} (${visible ? 'con la finestra dell\'installer' : 'silenziosa'})`);
     this.autoUpdater.quitAndInstallCalled = false; // un nuovo tentativo dopo uno non riuscito
@@ -267,6 +269,8 @@ function friendlyError(err) {
   if (/ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|net::ERR_/i.test(msg)) return 'Nessuna connessione a Internet: riproverò più tardi.';
   if (/404|Cannot find latest|No published versions|HttpError: 404/i.test(msg)) return 'Nessuna versione pubblicata su GitHub per ora.';
   if (/rate limit|403/i.test(msg)) return 'GitHub ha limitato le richieste: riproverò più tardi.';
+  if (/code signature|not signed|signature.*(valid|match)|SQRLCodeSignature/i.test(msg)) return 'La firma della nuova versione non è valida per questo Mac: scaricala a mano dalla pagina delle versioni.';
+  if (/read-only volume|Applications folder|translocat/i.test(msg)) return 'Sposta SonoPrint nella cartella Applicazioni e riaprilo: da lì può aggiornarsi da solo.';
   return msg.split('\n')[0].slice(0, 200);
 }
 

@@ -52,6 +52,7 @@ export function openUpdateWizard({ check = false } = {}) {
     const cur = a.current || '-';
     const versions = a.version && a.version !== cur ? `${cur} → ${a.version}` : `Versione ${cur}`;
     const base = { title: 'Aggiornamento', versions };
+    const mac = a.platform === 'darwin';
 
     if (a.justUpdated) {
       return { ...base, title: 'Aggiornamento riuscito', versions: `${a.justUpdated.from} → ${a.justUpdated.to}`, step: 3, stepState: 'done',
@@ -63,13 +64,15 @@ export function openUpdateWizard({ check = false } = {}) {
       return { ...base, title: 'Aggiornamento non installato', versions: `${a.installFailed.from} → ${a.installFailed.to}`, step: 2, stepState: 'error',
         panel: h('div', { class: 'stack tight' },
           result('error', `L'aggiornamento alla versione ${a.installFailed.to} non è stato installato: SonoPrint si è chiuso ma è ripartito con la versione ${a.installFailed.from}.`),
-          h('p', { class: 'dim uw-p' }, ready
-            ? 'Puoi riprovare, oppure usare la finestra dell\'installer: mostra la sua barra di avanzamento e gli eventuali errori.'
-            : 'Sto preparando di nuovo l\'aggiornamento scaricato...'),
+          h('p', { class: 'dim uw-p' }, !ready
+            ? 'Sto preparando di nuovo l\'aggiornamento scaricato...'
+            : mac
+              ? 'Puoi riprovare. Se non va, controlla che SonoPrint sia nella cartella Applicazioni, oppure scarica la nuova versione a mano.'
+              : 'Puoi riprovare, oppure usare la finestra dell\'installer: mostra la sua barra di avanzamento e gli eventuali errori.'),
           printing.length ? printingAlert(printing) : null),
         actions: [manual(),
-          action('Usa l\'installer', 'upload', '', install('visible'), !ready),
-          action('Riprova', 'refresh', 'primary', install('silent'), !ready)] };
+          mac ? null : action('Usa l\'installer', 'upload', '', install('visible'), !ready),
+          action('Riprova', 'refresh', 'primary', install('silent'), !ready)].filter(Boolean) };
     }
 
     switch (a.status) {
@@ -99,8 +102,12 @@ export function openUpdateWizard({ check = false } = {}) {
           return { ...base, title: 'Installazione non partita', step: 2, stepState: 'error',
             panel: h('div', { class: 'stack tight' },
               result('error', 'SonoPrint è ancora aperto: l\'installazione non è partita.'),
-              h('p', { class: 'dim uw-p' }, 'Prova con la finestra dell\'installer: mostra la barra di avanzamento e chiude SonoPrint da sola. In alternativa scarica l\'installer e aprilo a mano.')),
-            actions: [manual(), action('Usa l\'installer', 'upload', 'primary', install('visible'))] };
+              h('p', { class: 'dim uw-p' }, mac
+                ? 'Controlla che SonoPrint sia nella cartella Applicazioni e riprova, oppure scarica la nuova versione a mano.'
+                : 'Prova con la finestra dell\'installer: mostra la barra di avanzamento e chiude SonoPrint da sola. In alternativa scarica l\'installer e aprilo a mano.')),
+            actions: mac
+              ? [manual(), action('Riprova', 'refresh', 'primary', install('silent'))]
+              : [manual(), action('Usa l\'installer', 'upload', 'primary', install('visible'))] };
         }
         return { ...base, title: 'Installazione', step: 2, stepState: 'run',
           panel: h('div', { class: 'stack tight' },

@@ -1,6 +1,6 @@
 # SonoPrint
 
-**SonoPrint** (prima si chiamava Polipo) è un'app per Windows che controlla **più stampanti 3D contemporaneamente**, in stile [OctoPrint](https://octoprint.org): via USB oppure in rete (Bambu Lab, Klipper, PrusaLink e OctoPrint).
+**SonoPrint** (prima si chiamava Polipo) è un'app per Windows e Mac che controlla **più stampanti 3D contemporaneamente**, in stile [OctoPrint](https://octoprint.org): via USB oppure in rete (Bambu Lab, Klipper, PrusaLink e OctoPrint).
 
 *made by sonozero*
 
@@ -8,7 +8,7 @@
 
 - **Più stampanti insieme**, anche di tipi diversi: ognuna con la sua connessione, la sua stampa e le sue impostazioni. La *Panoramica* le mostra tutte.
 - **Stampanti in rete con ricerca automatica**: SonoPrint trova da solo le Bambu Lab, le stampanti Klipper, PrusaLink e OctoPrint nella rete di casa; basta premere **Aggiungi**.
-- **Stampanti USB**: elenca le porte COM, segnala quelle che sembrano stampanti (CH340, FTDI, STM32, Prusa...) e trova da solo il baudrate. Invio del G-code riga per riga con numeri di riga, checksum e reinvio automatico delle righe corrotte.
+- **Stampanti USB**: elenca le porte seriali (COM su Windows, `/dev/cu.*` su Mac), segnala quelle che sembrano stampanti (CH340, FTDI, STM32, Prusa...) e trova da solo il baudrate. Invio del G-code riga per riga con numeri di riga, checksum e reinvio automatico delle righe corrotte.
 - **Centro aggiornamenti**: SonoPrint e il firmware o il software di ogni stampante in una pagina sola, con novità, avanzamento passo per passo e **Aggiorna tutto** (vedi sotto).
 - **Pausa e ripresa sicure**, **annullamento** con script configurabile e **arresto di emergenza**.
 - **Temperature** in tempo reale con grafico e preriscaldamento rapido (PLA, PETG, ABS, TPU... personalizzabili).
@@ -18,7 +18,7 @@
 - **Anteprima 3D** del pezzo sul piatto della stampante, che cresce seguendo la stampa in corso: nella scheda Anteprima (con la vista 2D layer per layer), come miniatura nella Panoramica e per ogni file nella pagina File.
 - **Tempo rimanente e ora di fine**.
 - **Telecamere**: webcam USB, flussi MJPEG/snapshot di rete, telecamera integrata delle Bambu P1 e A1 e telecamere di Klipper.
-- **Cronologia** delle stampe con statistiche, **notifiche di Windows** a fine stampa, blocco della **sospensione** del PC durante le stampe USB.
+- **Cronologia** delle stampe con statistiche, **notifiche del sistema** a fine stampa, blocco della **sospensione** del computer durante le stampe USB.
 - **Accesso dal telefono** con QR code e chiave segreta.
 - **Temi chiaro e scuro**, interfaccia che funziona anche senza internet.
 - **Stampante virtuale** che simula un firmware Marlin, per provare tutto senza stampante.
@@ -27,7 +27,7 @@
 
 | Tipo | Cosa serve |
 | --- | --- |
-| **USB** (Marlin, Prusa, RepRapFirmware e derivati) | Cavo USB. Le stampe partono dal PC: se chiudi SonoPrint o il PC va in sospensione, la stampa si ferma. |
+| **USB** (Marlin, Prusa, RepRapFirmware e derivati) | Cavo USB. Le stampe partono dal computer: se chiudi SonoPrint o il computer va in sospensione, la stampa si ferma. |
 | **Bambu Lab** (X1, P1, A1, H2) | Sulla stampante, in *Impostazioni > WLAN*, attiva la **Modalità solo LAN** e la **Modalità sviluppatore** (senza, SonoPrint può solo leggere lo stato). Servono indirizzo IP e codice di accesso LAN (8 cifre, nella stessa pagina); il numero di serie SonoPrint lo legge da solo. |
 | **Klipper** (Moonraker, come Mainsail e Fluidd) | Indirizzo della stampante, porta 7125 (se non risponde prova 80); la chiave API solo se Moonraker la richiede. |
 | **PrusaLink** (MK4, MK3.9, Core One, MINI+, XL) | Indirizzo, nome utente (di solito `maker`) e password da *Impostazioni > Rete > PrusaLink* sulla stampante; con i firmware vecchi la chiave API. PrusaLink non permette di muovere gli assi né di impostare le temperature. |
@@ -60,7 +60,7 @@ La pagina **Aggiornamenti** del menu raccoglie tutto; il numero accanto alla voc
 Dalla pagina di ogni stampante, scheda **Firmware** (oppure dai dettagli nel centro aggiornamenti):
 
 - **USB, schede a 8 bit** (ATmega2560, 1284P, 328P con bootloader): SonoPrint scrive il file `.hex` via USB e rilegge ogni pagina per verificarla.
-- **USB, schede a 32 bit** (Creality 4.2.x, BTT SKR, MKS): SonoPrint copia il file `.bin` sulla scheda SD inserita nel PC con il nome giusto (sempre diverso per Creality, `firmware.bin` per BTT e MKS); rimetti la scheda nella stampante e riaccendila.
+- **USB, schede a 32 bit** (Creality 4.2.x, BTT SKR, MKS): SonoPrint copia il file `.bin` sulla scheda SD inserita nel computer con il nome giusto (sempre diverso per Creality, `firmware.bin` per BTT e MKS); rimetti la scheda nella stampante e riaccendila.
 - **Bambu Lab**: aggiornamento offline. SonoPrint copia il pacchetto ufficiale sulla microSD della stampante, poi lo avvii dallo schermo in *Impostazioni > Firmware* (le P1 devono avere almeno il firmware 01.07, le A1 almeno il 01.04).
 - **Klipper**: update manager di Moonraker (Klipper, Moonraker, Mainsail o Fluidd, pacchetti del sistema), un componente alla volta o tutto insieme.
 - **OctoPrint**: aggiornamento di OctoPrint e dei plugin (serve la chiave di un amministratore).
@@ -75,9 +75,9 @@ Per Marlin e Prusa SonoPrint confronta la versione installata con l'ultima pubbl
 L'accesso dal telefono è una funzione per sviluppatori ed è nascosta: in **Impostazioni > Informazioni** tocca **7 volte** il numero di versione per attivare la modalità sviluppatore. Compare la sezione **Accesso dal telefono**: SonoPrint si apre alla rete di casa e mostra un QR code da inquadrare con l'app per il telefono. Spegnendo la modalità sviluppatore si spegne anche l'accesso dal telefono.
 
 - L'accesso è protetto da una **chiave segreta** casuale contenuta nel QR code; si può rigenerare in qualsiasi momento (i telefoni abbinati andranno riabbinati).
-- Dalla rete si raggiungono solo le API per l'app: la pagina web di SonoPrint, la porta e le impostazioni di rete restano accessibili **solo dal PC**.
-- Al primo avvio Windows può chiedere di consentire l'accesso alla rete: scegli **Reti private**.
-- **Fuori casa**: installa [Tailscale](https://tailscale.com/download) su PC e telefono; è più sicuro che aprire porte sul router.
+- Dalla rete si raggiungono solo le API per l'app: la pagina web di SonoPrint, la porta e le impostazioni di rete restano accessibili **solo dal computer**.
+- Al primo avvio Windows può chiedere di consentire l'accesso alla rete: scegli **Reti private**. Su Mac scegli **Consenti** quando chiede di cercare dispositivi nella rete locale.
+- **Fuori casa**: installa [Tailscale](https://tailscale.com/download) su computer e telefono; è più sicuro che aprire porte sul router.
 
 ## Aggiornamenti dell'app
 
@@ -88,6 +88,22 @@ La versione installata (`SonoPrint-Setup-x.y.z.exe`) si aggiorna da sola dalle [
 - se una stampa USB è in corso non interrompe nulla: l'aggiornamento si installa a fine stampa o alla chiusura dell'app.
 
 La versione portable (`SonoPrint-Portable-x.y.z.exe`) non può sostituirsi da sola: avvisa quando esce una nuova versione e apre la pagina di download.
+
+Il **wizard dell'aggiornamento** mostra ogni passo (controllo, download con percentuale, installazione) e, dopo il riavvio, dice se l'aggiornamento è andato a buon fine. Il registro è in `%APPDATA%\SonoPrint\logs\updater.log` su Windows e in `~/Library/Application Support/SonoPrint/logs/updater.log` su Mac.
+
+## SonoPrint su Mac
+
+Dalle [Release](../../releases) scarica il file per il tuo Mac:
+
+- `SonoPrint-x.y.z-arm64.dmg` per i Mac con chip Apple (M1, M2, M3, M4...);
+- `SonoPrint-x.y.z-x64.dmg` per i Mac con processore Intel.
+
+Apri il DMG e trascina SonoPrint nella cartella **Applicazioni**: da lì si aggiorna da solo, come su Windows. L'app è firmata e notarizzata da Apple, quindi si apre senza avvisi.
+
+- Chiudendo la finestra SonoPrint resta aperto nel Dock e le stampe USB continuano; si esce con **Cmd+Q**, che chiede conferma se una stampa USB è in corso.
+- Le stampanti USB compaiono come `/dev/cu.usbserial-...` o `/dev/cu.usbmodem...`. Per le schede con chip CH340 sui Mac più vecchi può servire il driver del produttore.
+- Al primo uso macOS chiede il permesso di cercare dispositivi nella **rete locale** (serve per trovare le stampanti in rete) e, se usi una webcam USB, quello per la **telecamera**.
+- I dati sono in `~/Library/Application Support/SonoPrint/data`.
 
 ### Arrivi da Polipo?
 
@@ -105,7 +121,21 @@ npm version minor        # 0.1.1 -> 0.2.0 (oppure: patch / major), crea commit e
 git push --follow-tags   # GitHub Actions compila e pubblica la Release
 ```
 
-Il workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) esegue i test, controlla che il tag corrisponda alla versione, compila installer e portable e li pubblica nella Release insieme a `latest.yml` (il file che le app leggono per sapere se c'è un aggiornamento). Perché gli aggiornamenti funzionino il repository deve essere **pubblico**.
+Il workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) esegue i test su Windows e su Mac, controlla che il tag corrisponda alla versione, compila installer e portable per Windows e DMG e ZIP per Mac (Apple Silicon e Intel), e mette tutto in una sola Release insieme a `latest.yml` e `latest-mac.yml` (i file che le app leggono per sapere se c'è un aggiornamento). Perché gli aggiornamenti funzionino il repository deve essere **pubblico**. Da **Actions > Release > Run workflow** si può compilare tutto senza pubblicare, per provare.
+
+### Firma Apple per la versione Mac
+
+Su Mac un'app si aggiorna da sola solo se è firmata con un certificato **Developer ID** e notarizzata da Apple (serve l'Apple Developer Program). Il workflow firma e notarizza quando trova questi segreti in **Settings > Secrets and variables > Actions** del repository:
+
+| Segreto | Cosa contiene |
+| --- | --- |
+| `MAC_CERTIFICATE` | certificato "Developer ID Application" esportato come `.p12`, in base64 |
+| `MAC_CERTIFICATE_PASSWORD` | la password scelta esportando il `.p12` |
+| `APPLE_API_KEY` | il contenuto del file `AuthKey_XXXXXXXXXX.p8` (App Store Connect API) |
+| `APPLE_API_KEY_ID` | il Key ID di quella chiave |
+| `APPLE_API_ISSUER` | l'Issuer ID mostrato nella stessa pagina |
+
+Senza segreti la versione per Mac viene compilata ma non firmata, e non viene pubblicata: la Release contiene solo Windows e il workflow lo segnala.
 
 Se fai un **fork** e pubblichi le tue versioni, cambia `repository.url` e `build.publish` in [`package.json`](package.json) con il tuo repository, altrimenti le copie installate continueranno a cercare gli aggiornamenti qui.
 
@@ -116,14 +146,14 @@ Se fai un **fork** e pubblichi le tue versioni, cambia `repository.url` e `build
 - **PrusaLink**: niente temperature, movimenti né terminale (limite di PrusaLink).
 - **OctoPrint**: il terminale invia i comandi, le risposte si vedono in OctoPrint.
 - **Stampanti in rete**: il tipo di una stampante non si cambia; va rimossa e aggiunta di nuovo.
-- **Ricerca**: guarda solo la rete del PC (al massimo 254 indirizzi per scheda di rete); le stampanti in altre reti si aggiungono scrivendo l'indirizzo IP.
+- **Ricerca**: guarda solo la rete del computer (al massimo 254 indirizzi per scheda di rete); le stampanti in altre reti si aggiungono scrivendo l'indirizzo IP.
 - **Firmware USB**: solo schede AVR con bootloader (ATmega2560, 1280, 1284P, 644P, 328P); le schede senza bootloader richiedono un programmatore ISP; le schede a 32 bit si aggiornano con la scheda SD.
 
 ## Sicurezza
 
 - Codici di accesso, password e chiavi API delle stampanti sono salvati in `%APPDATA%\SonoPrint\data\config.json`, come fa OctoPrint. Non vengono mai mandati all'interfaccia né al telefono.
 - Con le Bambu Lab la connessione è verificata con i certificati di Bambu Lab. I firmware vecchi usano un certificato non firmato: SonoPrint lo memorizza alla prima connessione e poi accetta solo quello. Chi fosse già nella tua rete in quel primo momento potrebbe intercettare il codice di accesso: fai la prima connessione da una rete di cui ti fidi.
-- Ricerca in rete, caricamento del firmware, schede SD, porta e accesso dal telefono si usano solo dal PC.
+- Ricerca in rete, caricamento del firmware, schede SD, porta e accesso dal telefono si usano solo dal computer.
 
 ## Sviluppo
 
@@ -134,7 +164,8 @@ npm install                     # dipendenze
 npm start                       # avvia l'app desktop
 npm run server                  # solo il servizio, interfaccia su http://127.0.0.1:5723
 npm test                        # test automatici (stampante virtuale e stampanti in rete finte)
-npm run dist                    # crea installer e versione portable in dist/ (senza pubblicarli)
+npm run dist                    # Windows: installer e versione portable in dist/ (senza pubblicarli)
+npm run dist:mac                # Mac (solo da un Mac): DMG e ZIP in dist/
 node scripts/fake-printers.js   # stampanti in rete finte sul PC (Bambu, Klipper, PrusaLink, OctoPrint)
 node scripts/make-sample.js     # crea un G-code di esempio in samples/
 node scripts/build-assets.js    # copia icone, font e Three.js in src/web (dopo aver aggiunto un'icona o aggiornato three)
@@ -163,7 +194,7 @@ src/
 test/                     test automatici (node --test) con stampanti finte in test/fakes
 ```
 
-I dati (stampanti, file caricati, cronologia) sono in `%APPDATA%\SonoPrint\data`.
+I dati (stampanti, file caricati, cronologia) sono in `%APPDATA%\SonoPrint\data` su Windows e in `~/Library/Application Support/SonoPrint/data` su Mac.
 
 ## Crediti
 

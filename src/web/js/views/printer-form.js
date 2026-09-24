@@ -110,7 +110,7 @@ function chooser({ autoScan, onPick }) {
     const list = await run(() => api('POST', '/discovery'));
     scanBtn.disabled = false;
     if (!list) { clear(results); return; }
-    showList(list, 'Nessuna stampante trovata. Controlla che sia accesa e nella stessa rete del PC; per le Bambu Lab attiva la modalità LAN. Puoi anche scrivere il suo indirizzo IP qui sotto.');
+    showList(list, 'Nessuna stampante trovata. Controlla che sia accesa e nella stessa rete del computer; per le Bambu Lab attiva la modalità LAN. Puoi anche scrivere il suo indirizzo IP qui sotto.');
   }
 
   async function probe() {
@@ -131,7 +131,7 @@ function chooser({ autoScan, onPick }) {
   const el = h('div', { class: 'stack' },
     h('div', { class: 'stack tight' },
       h('div', { class: 'row between' },
-        h('div', null, h('div', { class: 'card-title' }, 'Stampanti in rete'), h('div', { class: 'card-sub' }, 'Bambu Lab, Klipper, PrusaLink e OctoPrint nella stessa rete del PC.')),
+        h('div', null, h('div', { class: 'card-title' }, 'Stampanti in rete'), h('div', { class: 'card-sub' }, 'Bambu Lab, Klipper, PrusaLink e OctoPrint nella stessa rete del computer.')),
         scanBtn),
       results,
       h('div', { class: 'input-group' }, ipInput, probeBtn)),

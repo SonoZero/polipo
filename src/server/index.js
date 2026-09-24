@@ -425,7 +425,7 @@ async function startServer(options = {}) {
           if (r.method !== req.method) continue;
           const m = r.pattern.exec(url.pathname);
           if (!m) continue;
-          if (r.options.localOnly && !auth.local) return sendJson(res, 403, { error: 'Questa operazione si può fare solo dal PC.' });
+          if (r.options.localOnly && !auth.local) return sendJson(res, 403, { error: 'Questa operazione si può fare solo dal computer su cui gira SonoPrint.' });
           const result = await r.handler(req, r.options.raw ? url : m, res, auth);
           if (result === STREAMED) return;
           return sendJson(res, 200, result === undefined ? { ok: true } : result);
@@ -435,7 +435,7 @@ async function startServer(options = {}) {
 
       // l'interfaccia web si apre solo dal PC (dal telefono si usa l'app)
       if (!(isLoopback(ip) && allowedHost(req.headers.host))) {
-        return sendJson(res, 403, { error: 'L\'interfaccia di SonoPrint si apre solo sul PC. Dal telefono usa l\'app SonoPrint.' });
+        return sendJson(res, 403, { error: 'L\'interfaccia di SonoPrint si apre solo sul computer. Dal telefono usa l\'app SonoPrint.' });
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Metodo non consentito.' });
       return serveStatic(url.pathname, res);
