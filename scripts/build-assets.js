@@ -68,6 +68,7 @@ const ICONS = {
   network: 'network',
   light: 'lightbulb',
   speed: 'speedometer',
+  menu: 'list',
   chip: 'cpu',
   key: 'key',
   qr: 'qr-code',

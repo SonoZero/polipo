@@ -560,9 +560,17 @@ a:hover { text-decoration: underline; }
   .file-row { grid-template-columns: 56px minmax(0, 1fr) 200px; }
   .file-row > .opt { display: none; }
 }
+.topbar, .nav-scrim { display: none; }
 @media (max-width: 760px) {
-  .app { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
+  .app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--sidebar); }
+  .topbar-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -0.02em; color: var(--text); }
+  .topbar-brand:hover { text-decoration: none; }
+  .topbar-brand img { width: 26px; height: 26px; border-radius: 7px; }
+  .sidebar { position: fixed; inset: 0 auto 0 0; width: min(300px, 86vw); z-index: 40; box-shadow: var(--shadow-pop); transform: translateX(-100%); visibility: hidden; transition: transform 0.2s ease-in, visibility 0s linear 0.2s; }
+  .nav-open .sidebar { transform: none; visibility: visible; transition: transform 0.3s var(--ease-out), visibility 0s; }
+  .nav-scrim { display: block; position: fixed; inset: 0; z-index: 39; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+  .nav-open .nav-scrim { opacity: 1; pointer-events: auto; }
   .page { padding: 18px 16px 32px; }
   .grid-2, .grid-3, .pair-grid { grid-template-columns: 1fr; }
   .page-actions { margin-left: 0; width: 100%; }
