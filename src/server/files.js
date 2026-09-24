@@ -1,6 +1,7 @@
 'use strict';
 
-// Archivio dei file G-code condiviso tra tutte le stampanti.
+// Archivio dei file da stampare condiviso tra tutte le stampanti:
+// G-code e progetti .gcode.3mf (Bambu Studio, OrcaSlicer).
 
 const fs = require('fs');
 const path = require('path');
@@ -8,8 +9,9 @@ const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { pipeline } = require('stream/promises');
 const { analyzeFile } = require('./gcode');
+const { extractPlate } = require('./threemf');
 
-const EXTENSIONS = ['.gcode', '.gco', '.g', '.bgcode'];
+const EXTENSIONS = ['.gcode', '.gco', '.g', '.bgcode', '.3mf'];
 const META_VERSION = 3;
 
 class FileStore extends EventEmitter {
@@ -17,9 +19,11 @@ class FileStore extends EventEmitter {
     super();
     this.dir = path.join(dataDir, 'files');
     this.thumbDir = path.join(dataDir, 'thumbs');
+    this.cacheDir = path.join(dataDir, 'cache');
     this.metaPath = path.join(dataDir, 'files.json');
     fs.mkdirSync(this.dir, { recursive: true });
     fs.mkdirSync(this.thumbDir, { recursive: true });
+    fs.mkdirSync(this.cacheDir, { recursive: true });
     this.meta = readJson(this.metaPath, {});
     this.analyzing = new Set();
     this.isInUse = () => false;
@@ -50,6 +54,7 @@ class FileStore extends EventEmitter {
       const m = this.meta[name] || {};
       out.push({
         name,
+        kind: isProject(name) ? '3mf' : 'gcode',
         size: st.size,
         addedAt: m.addedAt || st.mtimeMs,
         analyzing: this.analyzing.has(name),
@@ -67,7 +72,8 @@ class FileStore extends EventEmitter {
     const p = path.join(this.dir, safe);
     if (!fs.existsSync(p)) return null;
     const m = this.meta[safe] || {};
-    return { name: safe, path: p, meta: m.meta || null };
+    const gcodePath = m.gcode ? path.join(this.cacheDir, m.gcode) : (isProject(safe) ? null : p);
+    return { name: safe, path: p, size: fs.statSync(p).size, meta: m.meta || null, gcodePath: gcodePath && fs.existsSync(gcodePath) ? gcodePath : null };
   }
 
   thumbPath(name) {
@@ -82,7 +88,7 @@ class FileStore extends EventEmitter {
     let name = sanitizeName(originalName);
     if (!name) throw new Error('Nome file non valido.');
     if (!EXTENSIONS.includes(path.extname(name).toLowerCase())) {
-      throw new Error('Sono accettati solo file G-code (.gcode, .gco, .g).');
+      throw new Error('Sono accettati file G-code (.gcode) e progetti .gcode.3mf di Bambu Studio e OrcaSlicer.');
     }
     if (path.extname(name).toLowerCase() === '.bgcode') {
       throw new Error('I file .bgcode (G-code binario Prusa) non sono supportati: nello slicer disattiva "G-code binario".');
@@ -101,6 +107,7 @@ class FileStore extends EventEmitter {
     }
     const old = this.meta[name];
     if (old && old.thumb) removeQuiet(path.join(this.thumbDir, old.thumb));
+    if (old && old.gcode) removeQuiet(path.join(this.cacheDir, old.gcode));
     this.meta[name] = { addedAt: Date.now(), prints: old ? old.prints : undefined };
     this._save();
     this.emit('changed');
@@ -116,6 +123,7 @@ class FileStore extends EventEmitter {
     fs.unlinkSync(p);
     const m = this.meta[safe];
     if (m && m.thumb) removeQuiet(path.join(this.thumbDir, m.thumb));
+    if (m && m.gcode) removeQuiet(path.join(this.cacheDir, m.gcode));
     delete this.meta[safe];
     this._save();
     this.emit('changed');
@@ -142,10 +150,29 @@ class FileStore extends EventEmitter {
     this.analyzing.add(name);
     this.emit('changed');
     try {
-      const meta = await analyzeFile(p);
-      if (meta.thumbnail) {
-        const thumbName = crypto.createHash('sha1').update(name + st.mtimeMs).digest('hex').slice(0, 16) + '.png';
-        fs.writeFileSync(path.join(this.thumbDir, thumbName), Buffer.from(meta.thumbnail.base64, 'base64'));
+      const key = crypto.createHash('sha1').update(name + st.mtimeMs).digest('hex').slice(0, 16);
+      let meta;
+      let thumb = null;
+      if (isProject(name)) {
+        const gcodeName = key + '.gcode';
+        const project = await extractPlate(p, path.join(this.cacheDir, gcodeName));
+        if (m.gcode && m.gcode !== gcodeName) removeQuiet(path.join(this.cacheDir, m.gcode));
+        m.gcode = gcodeName;
+        meta = await analyzeFile(path.join(this.cacheDir, gcodeName));
+        meta.plate = project.plate;
+        meta.plates = project.plates;
+        if (project.slicer) {
+          for (const [k, v] of Object.entries(project.slicer)) if (v !== null && v !== undefined) meta[k] = v;
+        }
+        if (!meta.slicer) meta.slicer = 'BambuStudio';
+        if (project.thumbnail) thumb = project.thumbnail;
+      } else {
+        meta = await analyzeFile(p);
+      }
+      if (!thumb && meta.thumbnail) thumb = Buffer.from(meta.thumbnail.base64, 'base64');
+      if (thumb) {
+        const thumbName = key + '.png';
+        fs.writeFileSync(path.join(this.thumbDir, thumbName), thumb);
         if (m.thumb && m.thumb !== thumbName) removeQuiet(path.join(this.thumbDir, m.thumb));
         m.thumb = thumbName;
       }
@@ -172,6 +199,10 @@ class FileStore extends EventEmitter {
     clearTimeout(this._saveTimer);
     writeJson(this.metaPath, this.meta);
   }
+}
+
+function isProject(name) {
+  return path.extname(String(name)).toLowerCase() === '.3mf';
 }
 
 function sanitizeName(name) {
@@ -203,4 +234,4 @@ function removeQuiet(p) {
   try { fs.unlinkSync(p); } catch (_) { /* ignora */ }
 }
 
-module.exports = { FileStore, sanitizeName, readJson, writeJson };
+module.exports = { FileStore, sanitizeName, readJson, writeJson, isProject };

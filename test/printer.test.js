@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 
 const gcode = require('../src/server/gcode');
-const { Printer } = require('../src/server/printer');
+const { MarlinPrinter: Printer } = require('../src/server/printers/marlin');
 
 // piccolo PNG 1x1 in base64
 const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -43,7 +43,7 @@ function makeGcode(layers = 20, movesPerLayer = 40) {
 }
 
 function tmpFile(content) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'polipo-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonoprint-test-'));
   const p = path.join(dir, 'test.gcode');
   fs.writeFileSync(p, content);
   return p;

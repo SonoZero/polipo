@@ -1,15 +1,15 @@
 {
-  "name": "polipo",
-  "productName": "Polipo",
+  "name": "sonoprint",
+  "productName": "SonoPrint",
   "version": "0.1.1",
-  "description": "Controllo di più stampanti 3D da Windows, in stile OctoPrint",
+  "description": "Controllo di più stampanti 3D da Windows: USB, Bambu Lab, Klipper, PrusaLink e OctoPrint",
   "main": "src/main.js",
-  "author": "zonozero",
+  "author": "sonozero",
   "license": "MIT",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/Bubo780/polipo.git"
+    "url": "https://github.com/SonoZero/polipo.git"
   },
   "scripts": {
     "start": "electron .",
@@ -19,18 +19,25 @@
     "release": "electron-builder --win nsis portable --publish always"
   },
   "dependencies": {
+    "basic-ftp": "^6.2.1",
     "electron-updater": "^6.8.9",
+    "mqtt": "^5.16.0",
+    "multicast-dns": "^7.2.5",
     "qrcode": "^1.5.4",
     "serialport": "^13.0.0",
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@phosphor-icons/core": "^2.1.1",
+    "aedes": "^1.2.0",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3"
   },
   "build": {
-    "appId": "com.zonozero.polipo",
-    "productName": "Polipo",
+    "appId": "com.sonozero.sonoprint",
+    "productName": "SonoPrint",
     "npmRebuild": false,
     "directories": {
       "output": "dist"
@@ -43,7 +50,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "Bubo780",
+        "owner": "SonoZero",
         "repo": "polipo",
         "releaseType": "release"
       }
@@ -54,11 +61,12 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "Polipo",
-      "artifactName": "Polipo-Setup-${version}.${ext}"
+      "shortcutName": "SonoPrint",
+      "artifactName": "SonoPrint-Setup-${version}.${ext}",
+      "guid": "3cd096dc-3556-5638-bbda-b6bca43f503e"
     },
     "portable": {
-      "artifactName": "Polipo-Portable-${version}.${ext}"
+      "artifactName": "SonoPrint-Portable-${version}.${ext}"
     }
   }
 }

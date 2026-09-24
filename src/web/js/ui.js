@@ -86,9 +86,9 @@ export function closeMenus() {
 
 export function toast(level, title, message, timeout = 5000) {
   const root = document.getElementById('toasts');
-  const icons = { success: 'check', error: 'alert', warn: 'alert', info: 'printer' };
+  const icons = { success: 'checkCircle', error: 'alert', warn: 'alert', info: 'info' };
   const el = h('div', { class: 'toast ' + level },
-    icon(icons[level] || 'printer'),
+    icon(icons[level] || 'info'),
     h('div', { class: 'grow' },
       title ? h('div', { class: 't-title' }, title) : null,
       message ? h('div', { class: 't-msg' }, message) : null),

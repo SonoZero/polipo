@@ -9,9 +9,7 @@ const RESULT = { done: 'Completata', cancelled: 'Annullata', failed: 'Interrotta
 export function mountHistory(container) {
   let filter = '';
   const statRefs = {};
-  const stat = (key, label, ic) => h('div', { class: 'card stat' },
-    h('div', { class: 'row', style: { justifyContent: 'space-between' } }, statRefs[key] = h('div', { class: 'v' }), icon(ic, 'lg faint')),
-    h('div', { class: 'l' }, label));
+  const stat = (key, label) => h('span', null, statRefs[key] = h('b'), ' ', label);
   const printerSel = h('select', { class: 'select', style: { width: '200px' }, onchange: (e) => { filter = e.target.value; render(); } });
   const tableWrap = h('div', { class: 'card', style: { overflow: 'auto' } });
 
@@ -28,11 +26,11 @@ export function mountHistory(container) {
           if (ok) run(() => api('DELETE', '/history'));
         },
       }, icon('trash'), 'Svuota')),
-    h('div', { class: 'dash-stats' },
-      stat('count', 'stampe totali', 'printer'),
-      stat('rate', 'percentuale di successo', 'check'),
-      stat('time', 'tempo totale di stampa', 'clock'),
-      stat('failed', 'stampe interrotte', 'alert')),
+    h('div', { class: 'summary' },
+      stat('count', 'stampe'),
+      stat('rate', 'riuscite'),
+      stat('time', 'di stampa in totale'),
+      stat('failed', 'interrotte')),
     tableWrap);
 
   function render() {
@@ -45,7 +43,7 @@ export function mountHistory(container) {
     const done = rows.filter((x) => x.result === 'done').length;
     const finished = rows.filter((x) => x.result !== 'cancelled').length;
     setText(statRefs.count, String(rows.length));
-    setText(statRefs.rate, finished ? Math.round((done / finished) * 100) + '%' : '—');
+    setText(statRefs.rate, finished ? Math.round((done / finished) * 100) + '%' : '-');
     setText(statRefs.time, fmtDuration(rows.reduce((s, x) => s + (x.duration || 0), 0), { short: true }));
     setText(statRefs.failed, String(rows.filter((x) => x.result === 'failed').length));
 

@@ -1,7 +1,8 @@
 'use strict';
 
-// Processo principale di Electron: avvia il servizio Polipo e apre la finestra.
+// Processo principale di Electron: avvia il servizio SonoPrint e apre la finestra.
 
+const fs = require('fs');
 const path = require('path');
 const { app, BrowserWindow, Menu, Notification, dialog, shell, powerSaveBlocker, session, nativeImage } = require('electron');
 const { startServer } = require('./server');
@@ -16,10 +17,10 @@ let sleepBlocker = null;
 let quitting = false;
 
 // profilo separato (utile per provare una seconda copia senza toccare quella in uso)
-if (process.env.POLIPO_USER_DATA) app.setPath('userData', process.env.POLIPO_USER_DATA);
+if (process.env.SONOPRINT_USER_DATA) app.setPath('userData', process.env.SONOPRINT_USER_DATA);
 
 if (!app.requestSingleInstanceLock()) {
-  // Polipo è già aperto: porta in primo piano quella finestra
+  // SonoPrint è già aperto: porta in primo piano quella finestra
   app.quit();
 } else {
   app.on('second-instance', () => {
@@ -29,15 +30,16 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
   app.whenReady().then(start).catch((err) => {
-    dialog.showErrorBox('Polipo non si è avviato', String(err && err.stack || err));
+    dialog.showErrorBox('SonoPrint non si è avviato', String(err && err.stack || err));
     app.quit();
   });
 }
 
 async function start() {
-  app.setAppUserModelId('com.zonozero.polipo');
+  app.setAppUserModelId('com.sonozero.sonoprint');
   Menu.setApplicationMenu(null);
 
+  migrateFromPolipo();
   updater = new Updater(app);
   server = await startServer({ dataDir: path.join(app.getPath('userData'), 'data'), appInfo: updater });
 
@@ -51,7 +53,7 @@ async function start() {
     if (s.status !== 'downloaded' || notifiedVersion === s.version || !Notification.isSupported()) return;
     notifiedVersion = s.version;
     const notif = new Notification({
-      title: 'Aggiornamento di Polipo pronto',
+      title: 'Aggiornamento di SonoPrint pronto',
       body: `La versione ${s.version} verrà installata al prossimo riavvio.`,
       icon: nativeImage.createFromPath(ICON),
     });
@@ -60,7 +62,7 @@ async function start() {
   });
   updater.init();
 
-  // webcam e notifiche consentite solo all'interfaccia di Polipo
+  // webcam e notifiche consentite solo all'interfaccia di SonoPrint
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
     const fromUs = (details.requestingUrl || '').startsWith(origin());
     callback(fromUs && ['media', 'notifications', 'fullscreen'].includes(permission));
@@ -71,7 +73,7 @@ async function start() {
 
   server.events.on('notify', (n) => {
     if (n.quiet || !server.manager.settings.notifications || !Notification.isSupported()) return;
-    const notif = new Notification({ title: n.title || 'Polipo', body: n.message || '', icon: nativeImage.createFromPath(ICON) });
+    const notif = new Notification({ title: n.title || 'SonoPrint', body: n.message || '', icon: nativeImage.createFromPath(ICON) });
     notif.on('click', () => {
       if (!win) return;
       win.show();
@@ -94,7 +96,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     backgroundColor: '#0e1014',
-    title: 'Polipo',
+    title: 'SonoPrint',
     icon: ICON,
     show: false,
     webPreferences: {
@@ -106,7 +108,7 @@ function createWindow() {
   win.once('ready-to-show', () => win.show());
   win.loadURL(server.url);
 
-  // i link esterni si aprono nel browser, la finestra resta su Polipo
+  // i link esterni si aprono nel browser, la finestra resta su SonoPrint
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url) && !url.startsWith(origin())) shell.openExternal(url);
     return { action: 'deny' };
@@ -120,13 +122,13 @@ function createWindow() {
 
   win.on('close', (e) => {
     if (quitting || !server) return;
-    const active = server.manager.activePrints();
+    const active = server.manager.activeLocalPrints();
     if (!active.length) return;
     const choice = dialog.showMessageBoxSync(win, {
       type: 'warning',
       title: 'Stampe in corso',
       message: `Stampa in corso su: ${active.join(', ')}.`,
-      detail: 'Polipo invia le stampe riga per riga: se lo chiudi, le stampe si interrompono.\nVuoi davvero uscire?',
+      detail: 'Le stampanti USB ricevono la stampa riga per riga da SonoPrint: se lo chiudi, quelle stampe si interrompono. Le stampanti in rete continuano da sole.\nVuoi davvero uscire?',
       buttons: ['Non chiudere', 'Esci e interrompi le stampe'],
       defaultId: 0,
       cancelId: 0,
@@ -136,13 +138,24 @@ function createWindow() {
   win.on('closed', () => { win = null; });
 }
 
+/** Alla prima apertura copia stampanti, file e cronologia di Polipo, il nome precedente dell'app. */
+function migrateFromPolipo() {
+  if (process.env.SONOPRINT_USER_DATA) return;
+  const target = path.join(app.getPath('userData'), 'data');
+  const old = path.join(app.getPath('appData'), 'Polipo', 'data');
+  if (fs.existsSync(target) || !fs.existsSync(old)) return;
+  try {
+    fs.cpSync(old, target, { recursive: true });
+  } catch (_) { /* si riparte da zero */ }
+}
+
 /** Origine attuale dell'interfaccia (cambia se si cambia la porta). */
 function origin() {
   return new URL(server.url).origin;
 }
 
 function updateSleepBlocker() {
-  const need = server && server.manager.settings.preventSleep && server.manager.anyPrinting();
+  const need = server && server.manager.settings.preventSleep && server.manager.activeLocalPrints().length > 0;
   if (need && sleepBlocker === null) sleepBlocker = powerSaveBlocker.start('prevent-app-suspension');
   if (!need && sleepBlocker !== null) {
     powerSaveBlocker.stop(sleepBlocker);

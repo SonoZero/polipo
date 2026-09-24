@@ -55,7 +55,7 @@ class VirtualPrinter extends EventEmitter {
     this._later(this.startupDelay, () => {
       this._send('start');
       this._send(`echo: Marlin 2.1.2 (${this.name})`);
-      this._send('echo: Last Updated: 2026-01-01 | Author: Polipo');
+      this._send('echo: Last Updated: 2026-01-01 | Author: SonoPrint');
       this._send('echo:SD card ok');
     });
   }
@@ -218,7 +218,7 @@ class VirtualPrinter extends EventEmitter {
         this._send(`X:${this.pos.x.toFixed(2)} Y:${this.pos.y.toFixed(2)} Z:${this.pos.z.toFixed(2)} E:${this.pos.e.toFixed(2)} Count X:0 Y:0 Z:0`);
         return this._send('ok');
       case 'M115':
-        this._send(`FIRMWARE_NAME:Marlin 2.1.2 (Polipo virtual) SOURCE_CODE_URL:github.com/MarlinFirmware/Marlin PROTOCOL_VERSION:1.0 MACHINE_TYPE:${this.name} EXTRUDER_COUNT:${this.extruderCount} UUID:00000000-0000-0000-0000-000000000000`);
+        this._send(`FIRMWARE_NAME:Marlin 2.1.2 (SonoPrint virtual) SOURCE_CODE_URL:github.com/MarlinFirmware/Marlin PROTOCOL_VERSION:1.0 MACHINE_TYPE:${this.name} EXTRUDER_COUNT:${this.extruderCount} UUID:00000000-0000-0000-0000-000000000000`);
         this._send(`Cap:AUTOREPORT_TEMP:${this.autoreportCap ? 1 : 0}`);
         this._send('Cap:AUTOREPORT_POS:0');
         this._send('Cap:EMERGENCY_PARSER:1');

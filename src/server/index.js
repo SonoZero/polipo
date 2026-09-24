@@ -12,6 +12,11 @@ const { WebSocketServer } = require('ws');
 const QRCode = require('qrcode');
 const { PrinterManager } = require('./manager');
 const { writeJson } = require('./files');
+const { lanAddresses } = require('./netinfo');
+const { discoverPrinters, probeHost } = require('./discovery');
+const { requestOctoPrintKey } = require('./printers/octoprint');
+const { listRemovableDrives } = require('./firmware/drives');
+const { pipeline } = require('stream/promises');
 
 const LOCAL_HOST = '127.0.0.1';
 const ANY_HOST = '0.0.0.0';
@@ -55,7 +60,7 @@ async function startServer(options = {}) {
   route('GET', /^\/api\/printers$/, () => manager.snapshots());
   route('POST', /^\/api\/printers$/, async (req) => manager.add(await readJsonBody(req)).snapshot());
   route('PUT', /^\/api\/printers\/order$/, async (req) => { manager.reorder((await readJsonBody(req)).ids || []); return { ok: true }; });
-  route('PUT', /^\/api\/printers\/([\w-]+)$/, async (req, m) => manager.update(m[1], await readJsonBody(req)).snapshot());
+  route('PUT', /^\/api\/printers\/([\w-]+)$/, async (req, m) => (await manager.update(m[1], await readJsonBody(req))).snapshot());
   route('DELETE', /^\/api\/printers\/([\w-]+)$/, async (req, m) => { await manager.remove(m[1]); return { ok: true }; });
   route('GET', /^\/api\/printers\/([\w-]+)\/log$/, (req, m) => manager.get(m[1]).getLog());
   route('GET', /^\/api\/printers\/([\w-]+)\/temps$/, (req, m) => manager.get(m[1]).getTempHistory());
@@ -71,51 +76,53 @@ async function startServer(options = {}) {
   });
   route('POST', /^\/api\/printers\/([\w-]+)\/command$/, async (req, m) => {
     const body = await readJsonBody(req);
-    manager.get(m[1]).sendCommands(body.commands || body.command || []);
+    await manager.get(m[1]).sendCommands(body.commands || body.command || []);
     return { ok: true };
   });
   route('POST', /^\/api\/printers\/([\w-]+)\/temperature$/, async (req, m) => {
     const body = await readJsonBody(req);
     const p = manager.get(m[1]);
     const targets = body.targets || { [body.heater]: body.target };
-    for (const [heater, target] of Object.entries(targets)) p.setTemperature(heater, target);
+    for (const [heater, target] of Object.entries(targets)) await p.setTemperature(heater, target);
     return { ok: true };
   });
   route('POST', /^\/api\/printers\/([\w-]+)\/jog$/, async (req, m) => {
     const body = await readJsonBody(req);
-    manager.get(m[1]).jog(body, body.speed);
+    await manager.get(m[1]).jog(body, body.speed);
     return { ok: true };
   });
   route('POST', /^\/api\/printers\/([\w-]+)\/home$/, async (req, m) => {
-    manager.get(m[1]).home((await readJsonBody(req)).axes);
+    await manager.get(m[1]).home((await readJsonBody(req)).axes);
     return { ok: true };
   });
   route('POST', /^\/api\/printers\/([\w-]+)\/extrude$/, async (req, m) => {
     const body = await readJsonBody(req);
-    manager.get(m[1]).extrude(body.amount, body.speed, body.tool);
+    await manager.get(m[1]).extrude(body.amount, body.speed, body.tool);
     return { ok: true };
   });
   route('POST', /^\/api\/printers\/([\w-]+)\/fan$/, async (req, m) => {
-    manager.get(m[1]).setFan((await readJsonBody(req)).speed);
+    await manager.get(m[1]).setFan((await readJsonBody(req)).speed);
     return { ok: true };
   });
   route('POST', /^\/api\/printers\/([\w-]+)\/rates$/, async (req, m) => {
     const body = await readJsonBody(req);
     const p = manager.get(m[1]);
-    if (body.feed !== undefined) p.setFeedRate(body.feed);
-    if (body.flow !== undefined) p.setFlowRate(body.flow);
+    if (body.feed !== undefined) await p.setFeedRate(body.feed);
+    if (body.flow !== undefined) await p.setFlowRate(body.flow);
     return { ok: true };
   });
-  route('POST', /^\/api\/printers\/([\w-]+)\/motors-off$/, (req, m) => { manager.get(m[1]).motorsOff(); return { ok: true }; });
-  route('POST', /^\/api\/printers\/([\w-]+)\/emergency$/, (req, m) => { manager.get(m[1]).emergencyStop(); return { ok: true }; });
+  route('POST', /^\/api\/printers\/([\w-]+)\/motors-off$/, async (req, m) => { await manager.get(m[1]).motorsOff(); return { ok: true }; });
+  route('POST', /^\/api\/printers\/([\w-]+)\/emergency$/, async (req, m) => { await manager.get(m[1]).emergencyStop(); return { ok: true }; });
+  route('POST', /^\/api\/printers\/([\w-]+)\/light$/, async (req, m) => { await manager.get(m[1]).setLight(!!(await readJsonBody(req)).on); return { ok: true }; });
+  route('POST', /^\/api\/printers\/([\w-]+)\/speed-level$/, async (req, m) => { await manager.get(m[1]).setSpeedLevel((await readJsonBody(req)).level); return { ok: true }; });
   route('POST', /^\/api\/printers\/([\w-]+)\/job$/, async (req, m) => {
     const body = await readJsonBody(req);
     const p = manager.get(m[1]);
     switch (body.action) {
       case 'start': manager.startPrint(m[1], body.file); break;
-      case 'pause': p.pause(); break;
-      case 'resume': p.resume(); break;
-      case 'cancel': p.cancel(); break;
+      case 'pause': await p.pause(); break;
+      case 'resume': await p.resume(); break;
+      case 'cancel': await p.cancel(); break;
       default: throw badRequest('Azione sconosciuta.');
     }
     return p.snapshot();
@@ -137,16 +144,135 @@ async function startServer(options = {}) {
   });
   route('GET', /^\/api\/files\/(.+)\/content$/, (req, m, res) => {
     const f = manager.files.get(decodeURIComponent(m[1]));
+    if (!f || !f.gcodePath) throw notFound();
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=latin1', 'Content-Length': fs.statSync(f.gcodePath).size });
+    fs.createReadStream(f.gcodePath).pipe(res);
+    return STREAMED;
+  });
+
+  route('GET', /^\/api\/files\/(.+)\/download$/, (req, m, res) => {
+    const f = manager.files.get(decodeURIComponent(m[1]));
     if (!f) throw notFound();
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=latin1', 'Content-Length': fs.statSync(f.path).size });
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': f.size,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(f.name)}`,
+    });
     fs.createReadStream(f.path).pipe(res);
     return STREAMED;
   });
 
+  // --- stampanti in rete ------------------------------------------------------------
+
+  route('POST', /^\/api\/discovery$/, async () => {
+    const found = await discoverPrinters();
+    return found.map((r) => ({ ...r, addedAs: alreadyAdded(r) }));
+  });
+  route('POST', /^\/api\/discovery\/probe$/, async (req) => {
+    const host = String((await readJsonBody(req)).host || '').trim().replace(/^[a-z]+:\/\//i, '').replace(/[:/].*$/, '');
+    if (!/^[\w.-]+$/.test(host)) throw badRequest('Indirizzo non valido.');
+    const found = await probeHost(host);
+    return found.map((r) => ({ ...r, addedAs: alreadyAdded(r) }));
+  });
+  route('POST', /^\/api\/octoprint\/appkey$/, async (req) => {
+    const body = await readJsonBody(req);
+    const key = await requestOctoPrintKey(String(body.host || ''), parseInt(body.port, 10) || null);
+    if (!key) throw badRequest('La richiesta è stata rifiutata in OctoPrint.');
+    return { apiKey: key };
+  }, { localOnly: true });
+
+  function alreadyAdded(r) {
+    for (const p of manager.list()) {
+      if (p.type !== r.type) continue;
+      const n = p.config.net;
+      if ((r.serial && n.serial === r.serial) || (n.host === r.host && (n.port || null) === (r.port || null))) return p.config.name;
+    }
+    return null;
+  }
+
+  // telecamera integrata (Bambu Lab P1 e A1): immagini JPEG come flusso MJPEG
+  route('GET', /^\/api\/printers\/([\w-]+)\/camera$/, (req, m, res) => {
+    const p = manager.get(m[1]);
+    if (p.capabilities.webcam !== 'builtin' || typeof p.watchCamera !== 'function') throw badRequest('Questa stampante non ha una telecamera integrata che SonoPrint sa leggere.');
+    if (!p.isConnected) throw badRequest('Connetti prima la stampante.');
+    const boundary = 'sonoprintframe';
+    res.writeHead(200, { 'Content-Type': `multipart/x-mixed-replace; boundary=${boundary}`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    let stop = null;
+    try {
+      stop = p.watchCamera((jpeg) => {
+        res.write(`--${boundary}\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`);
+        res.write(jpeg);
+        res.write('\r\n');
+      });
+    } catch (_) {
+      res.end();
+      return STREAMED;
+    }
+    req.on('close', () => { if (stop) stop(); });
+    return STREAMED;
+  });
+
+  // --- firmware e software delle stampanti --------------------------------------------
+
+  route('GET', /^\/api\/printers\/([\w-]+)\/firmware$/, async (req, url) => {
+    const id = /^\/api\/printers\/([\w-]+)\//.exec(url.pathname)[1];
+    const p = manager.get(id);
+    if (typeof p.firmwareInfo !== 'function') throw badRequest('Per questa stampante non ci sono aggiornamenti gestiti da SonoPrint.');
+    return p.firmwareInfo(url.searchParams.get('refresh') === '1');
+  }, { raw: true });
+  route('POST', /^\/api\/printers\/([\w-]+)\/firmware\/install$/, async (req, m) => {
+    const p = manager.get(m[1]);
+    const body = await readJsonBody(req);
+    if (!['klipper', 'octoprint'].includes(p.type)) throw badRequest('Per questa stampante carica il file del firmware.');
+    p.installFirmware(body.name || 'full').catch(() => { /* errore mostrato nell'operazione */ });
+    return { ok: true };
+  });
+  route('POST', /^\/api\/printers\/([\w-]+)\/firmware\/upload$/, async (req, url) => {
+    const id = /^\/api\/printers\/([\w-]+)\//.exec(url.pathname)[1];
+    const p = manager.get(id);
+    const name = String(url.searchParams.get('name') || '').replace(/^.*[\\/]/, '');
+    const ext = path.extname(name).toLowerCase();
+    const tmp = path.join(dataDir, 'tmp');
+    fs.mkdirSync(tmp, { recursive: true });
+    const dest = path.join(tmp, 'fw-' + crypto.randomBytes(6).toString('hex') + ext);
+    await saveUpload(req, dest, 1024 * 1024 * 1024);
+    const cleanup = () => fs.promises.unlink(dest).catch(() => {});
+    try {
+      if (p.type === 'usb' && ext === '.hex') {
+        const hex = fs.readFileSync(dest, 'latin1');
+        cleanup();
+        p.flashHex(hex).catch(() => { /* errore mostrato nell'operazione */ });
+        return { ok: true };
+      }
+      if (p.type === 'usb' && ext === '.bin') {
+        const drive = String(url.searchParams.get('drive') || '');
+        const naming = url.searchParams.get('naming') === 'unique' ? 'unique' : 'firmware';
+        const r = await p.copyFirmwareToDrive(drive, dest, naming);
+        cleanup();
+        return r;
+      }
+      if (p.type === 'bambu') {
+        p.installFirmware(dest, name).finally(cleanup).catch(() => { /* errore mostrato nell'operazione */ });
+        return { ok: true };
+      }
+      cleanup();
+      throw badRequest('Tipo di file non adatto a questa stampante.');
+    } catch (err) {
+      cleanup();
+      throw err;
+    }
+  }, { raw: true, localOnly: true });
+  route('POST', /^\/api\/printers\/([\w-]+)\/task\/clear$/, (req, m) => {
+    const p = manager.get(m[1]);
+    if (p.task && p.task.status !== 'running') p._setTask(null);
+    return { ok: true };
+  });
+  route('GET', /^\/api\/drives$/, () => listRemovableDrives(), { localOnly: true });
+
   route('GET', /^\/api\/app$/, () => appInfo.getState());
   route('POST', /^\/api\/app\/update\/check$/, () => appInfo.check());
   route('POST', /^\/api\/app\/update\/install$/, () => {
-    const active = manager.activePrints();
+    const active = manager.activeLocalPrints();
     if (active.length) throw badRequest(`Aspetta la fine delle stampe in corso (${active.join(', ')}) prima di aggiornare.`);
     return appInfo.install();
   }, { localOnly: true });
@@ -154,19 +280,18 @@ async function startServer(options = {}) {
   route('GET', /^\/api\/settings$/, () => manager.publicSettings());
   route('PUT', /^\/api\/settings$/, async (req, m, res, auth) => {
     const body = await readJsonBody(req);
-    // porta e accesso remoto si cambiano solo dal PC
-    if (!auth.local) { delete body.port; delete body.remote; }
+    // porta, accesso remoto e modalità sviluppatore si cambiano solo dal PC
+    if (!auth.local) { delete body.port; delete body.remote; delete body.developer; }
     if ('port' in body) {
       const port = validPort(body.port);
       if (!port) throw badRequest('La porta deve essere un numero tra 1024 e 65535.');
       // solo se l'utente l'ha davvero cambiata (o se all'avvio era occupata)
       if ((port !== manager.settings.port || portFallback) && port !== desired.port) await changePort(port);
     }
-    if ('remote' in body) {
-      const host = body.remote && body.remote.enabled ? ANY_HOST : LOCAL_HOST;
-      if (host !== desired.host) changeHost(host);
-    }
-    return manager.updateSettings(body);
+    const result = manager.updateSettings(body);
+    const host = manager.settings.remote.enabled ? ANY_HOST : LOCAL_HOST;
+    if (host !== desired.host) changeHost(host);
+    return result;
   });
 
   route('GET', /^\/api\/network$/, () => networkInfo());
@@ -222,7 +347,7 @@ async function startServer(options = {}) {
       k: key,
       n: os.hostname(),
     });
-    const pairingUrl = `polipo://pair?${params.toString()}`;
+    const pairingUrl = `sonoprint://pair?${params.toString()}`;
     const qrSvg = await QRCode.toString(pairingUrl, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } });
     return { enabled, key, port: current.port, hostname: os.hostname(), addresses, pairingUrl, qrSvg };
   }
@@ -232,16 +357,16 @@ async function startServer(options = {}) {
 
   /**
    * Chi sta chiamando?
-   * - local: richiesta dal PC stesso verso localhost (l'interfaccia di Polipo);
+   * - local: richiesta dal PC stesso verso localhost (l'interfaccia di SonoPrint);
    *   il controllo dell'Host blocca gli attacchi di DNS rebinding;
    * - tokenOk: interfaccia locale con il token della sessione;
    * - keyOk: app del telefono (o altro client) con la chiave di accesso remoto.
    */
   function authenticate(req, url) {
     const local = isLoopback(req.socket.remoteAddress) && allowedHost(req.headers.host);
-    const tokenVal = req.headers['x-polipo-token'] || (req.method === 'GET' ? url.searchParams.get('token') : null);
+    const tokenVal = req.headers['x-sonoprint-token'] || (req.method === 'GET' ? url.searchParams.get('token') : null);
     const tokenOk = local && !!tokenVal && safeEqual(String(tokenVal), token);
-    const keyVal = req.headers['x-polipo-key'] || (req.method === 'GET' ? url.searchParams.get('key') : null);
+    const keyVal = req.headers['x-sonoprint-key'] || (req.method === 'GET' ? url.searchParams.get('key') : null);
     const { enabled, key } = manager.settings.remote;
     const keyOk = enabled && !!keyVal && !tokenOk && safeEqual(String(keyVal), key);
     return { local: tokenOk, tokenOk, keyOk, triedKey: !!keyVal };
@@ -277,7 +402,7 @@ async function startServer(options = {}) {
         if (!auth.tokenOk && !auth.keyOk) {
           if (auth.triedKey) noteFailure(ip);
           const msg = auth.triedKey
-            ? (manager.settings.remote.enabled ? 'Chiave di accesso non valida: abbina di nuovo il telefono.' : 'L\'accesso dal telefono è disattivato in Polipo.')
+            ? (manager.settings.remote.enabled ? 'Chiave di accesso non valida: abbina di nuovo il telefono.' : 'L\'accesso dal telefono è disattivato in SonoPrint.')
             : 'Token non valido.';
           return sendJson(res, 401, { error: msg });
         }
@@ -295,7 +420,7 @@ async function startServer(options = {}) {
 
       // l'interfaccia web si apre solo dal PC (dal telefono si usa l'app)
       if (!(isLoopback(ip) && allowedHost(req.headers.host))) {
-        return sendJson(res, 403, { error: 'L\'interfaccia di Polipo si apre solo sul PC. Dal telefono usa l\'app Polipo.' });
+        return sendJson(res, 403, { error: 'L\'interfaccia di SonoPrint si apre solo sul PC. Dal telefono usa l\'app SonoPrint.' });
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Metodo non consentito.' });
       return serveStatic(url.pathname, res);
@@ -314,7 +439,7 @@ async function startServer(options = {}) {
     fs.readFile(filePath, (err, data) => {
       if (err) return sendJson(res, 404, { error: 'Non trovato.' });
       const ext = path.extname(filePath).toLowerCase();
-      if (ext === '.html') data = Buffer.from(data.toString('utf8').replace('%%POLIPO_TOKEN%%', token));
+      if (ext === '.html') data = Buffer.from(data.toString('utf8').replace('%%SONOPRINT_TOKEN%%', token));
       res.writeHead(200, {
         'Content-Type': MIME[ext] || 'application/octet-stream',
         'Cache-Control': 'no-cache',
@@ -482,7 +607,7 @@ async function startServer(options = {}) {
     });
   }
 
-  /** Apre o chiude Polipo alla rete (stessa porta: bisogna chiudere prima di riaprire). */
+  /** Apre o chiude SonoPrint alla rete (stessa porta: bisogna chiudere prima di riaprire). */
   function changeHost(host) {
     desired.host = host;
     serial(async () => {
@@ -495,7 +620,7 @@ async function startServer(options = {}) {
       } catch (err) {
         current = { server: await bind(old.port, old.host), port: old.port, host: old.host };
         desired.host = old.host;
-        events.emit('notify', { level: 'error', title: 'Polipo', message: 'Impossibile aprire Polipo alla rete: ' + err.message });
+        events.emit('notify', { level: 'error', title: 'SonoPrint', message: 'Impossibile aprire SonoPrint alla rete: ' + err.message });
       }
       if (current.host === LOCAL_HOST) dropRemoteClients();
       broadcast({ type: 'network', network: networkInfo() });
@@ -510,7 +635,7 @@ async function startServer(options = {}) {
     current = { server: s, port: s.address().port, host: startHost };
   } catch (err) {
     if (err.code !== 'EADDRINUSE') throw err;
-    // porta occupata (es. un'altra copia di Polipo): usa una porta libera e avvisa nelle impostazioni
+    // porta occupata (es. un'altra copia di SonoPrint): usa una porta libera e avvisa nelle impostazioni
     const s = await bind(0, startHost);
     current = { server: s, port: s.address().port, host: startHost };
     portFallback = true;
@@ -543,7 +668,7 @@ function headlessAppInfo() {
     status: 'unsupported',
     version: null, percent: null, error: null, checkedAt: null, portable: false, releaseUrl: null,
   };
-  const unsupported = () => { throw badRequest('Gli aggiornamenti automatici funzionano solo nella versione installata di Polipo.'); };
+  const unsupported = () => { throw badRequest('Gli aggiornamenti automatici funzionano solo nella versione installata di SonoPrint.'); };
   info.getState = () => state;
   info.check = unsupported;
   info.install = unsupported;
@@ -572,30 +697,9 @@ function validPort(v) {
 function setCors(res, origin) {
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Headers', 'X-Polipo-Key, Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'X-SonoPrint-Key, Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
   res.setHeader('Access-Control-Max-Age', '600');
-}
-
-// schede di rete virtuali (macchine virtuali, WSL, Docker) che il telefono non può raggiungere
-const VIRTUAL_NICS = /vEthernet|VirtualBox|VMware|Hyper-V|WSL|Docker|Loopback/i;
-const KIND_ORDER = { lan: 0, tailscale: 1, vpn: 2 };
-
-/** Indirizzi IPv4 del PC raggiungibili dal telefono (Wi-Fi/Ethernet, Tailscale, altre VPN). */
-function lanAddresses() {
-  const out = [];
-  for (const [name, list] of Object.entries(os.networkInterfaces())) {
-    if (VIRTUAL_NICS.test(name)) continue;
-    for (const a of list || []) {
-      if (a.family !== 'IPv4' || a.internal || a.address.startsWith('169.254.')) continue;
-      const [x, y] = a.address.split('.').map(Number);
-      const cgnat = x === 100 && y >= 64 && y <= 127; // usato da Tailscale ma anche da altre VPN
-      const kind = /tailscale/i.test(name) ? 'tailscale' : (cgnat || /vpn|wireguard|nordlynx|zerotier|wintun/i.test(name) ? 'vpn' : 'lan');
-      out.push({ address: a.address, name, kind });
-    }
-  }
-  // prima la rete di casa, poi Tailscale, poi le altre VPN
-  return out.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
 }
 
 function readJsonBody(req, limit = 1024 * 1024) {
@@ -616,6 +720,18 @@ function readJsonBody(req, limit = 1024 * 1024) {
       try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch (_) { reject(badRequest('JSON non valido.')); }
     });
     req.on('error', reject);
+  });
+}
+
+function saveUpload(req, dest, limit) {
+  let size = 0;
+  req.on('data', (c) => {
+    size += c.length;
+    if (size > limit) req.destroy(badRequest('File troppo grande.'));
+  });
+  return pipeline(req, fs.createWriteStream(dest)).catch((err) => {
+    fs.promises.unlink(dest).catch(() => {});
+    throw err;
   });
 }
 

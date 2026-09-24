@@ -1,53 +1,91 @@
 // Impostazioni generali dell'app.
 
 import { h, icon, clear } from '../util.js';
-import { api, store } from '../api.js';
-import { run } from '../ui.js';
-import { check } from './printer-form.js';
+import { api, store, on } from '../api.js';
+import { run, toast } from '../ui.js';
+import { check, toggle } from './printer-form.js';
 import { applyTheme, getThemePref } from '../theme.js';
 import { createUpdateSettings } from '../updates.js';
 import { createPortSettings, createRemoteSettings } from '../network.js';
+
+const TAPS_FOR_DEVELOPER = 7;
 
 export function mountSettings(container) {
   const s = JSON.parse(JSON.stringify(store.settings));
   const updates = createUpdateSettings();
   const portSettings = createPortSettings();
-  const remoteSettings = createRemoteSettings();
-  const presetsBox = h('div', { class: 'stack', style: { gap: '8px' } });
+  let remoteSettings = null;
+  const offs = [];
+  const presetsBox = h('div', { class: 'stack tight' });
 
   function renderPresets() {
     clear(presetsBox);
-    presetsBox.appendChild(h('div', { class: 'row faint', style: { fontSize: '12px', fontWeight: 600 } },
-      h('span', { style: { width: '160px' } }, 'MATERIALE'), h('span', { style: { width: '110px' } }, 'UGELLO °C'), h('span', { style: { width: '110px' } }, 'PIATTO °C')));
+    presetsBox.appendChild(h('div', { class: 'row faint', style: { fontSize: '12px', fontWeight: 550 } },
+      h('span', { style: { width: '160px' } }, 'Materiale'), h('span', { style: { width: '110px' } }, 'Ugello °C'), h('span', { style: { width: '110px' } }, 'Piatto °C')));
     s.presets.forEach((pr, i) => {
       presetsBox.appendChild(h('div', { class: 'row' },
-        h('input', { class: 'input', style: { width: '160px' }, value: pr.name, oninput: (e) => { pr.name = e.target.value; } }),
-        h('input', { class: 'input num', type: 'number', style: { width: '110px' }, value: String(pr.hotend), oninput: (e) => { pr.hotend = Number(e.target.value); } }),
-        h('input', { class: 'input num', type: 'number', style: { width: '110px' }, value: String(pr.bed), oninput: (e) => { pr.bed = Number(e.target.value); } }),
-        h('button', { class: 'btn ghost icon-only', title: 'Rimuovi', onclick: () => { s.presets.splice(i, 1); renderPresets(); } }, icon('trash', 'sm'))));
+        h('input', { class: 'input', style: { width: '160px' }, value: pr.name, 'aria-label': 'Materiale', oninput: (e) => { pr.name = e.target.value; } }),
+        h('input', { class: 'input num', type: 'number', style: { width: '110px' }, value: String(pr.hotend), 'aria-label': 'Temperatura ugello', oninput: (e) => { pr.hotend = Number(e.target.value); } }),
+        h('input', { class: 'input num', type: 'number', style: { width: '110px' }, value: String(pr.bed), 'aria-label': 'Temperatura piatto', oninput: (e) => { pr.bed = Number(e.target.value); } }),
+        h('button', { class: 'btn ghost icon-only', title: 'Rimuovi', 'aria-label': 'Rimuovi materiale', onclick: () => { s.presets.splice(i, 1); renderPresets(); } }, icon('trash', 'sm'))));
     });
     presetsBox.appendChild(h('div', null,
       h('button', { class: 'btn sm', onclick: () => { s.presets.push({ name: 'Nuovo', hotend: 210, bed: 60 }); renderPresets(); } }, icon('plus', 'sm'), 'Aggiungi materiale')));
   }
   renderPresets();
 
-  const themeSeg = h('div', { class: 'seg' });
+  const themeSeg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Tema' });
   const renderTheme = () => {
     clear(themeSeg);
-    for (const [v, label, ic] of [['dark', 'Scuro', 'moon'], ['light', 'Chiaro', 'sun'], ['system', 'Sistema', 'settings']]) {
+    for (const [v, label, ic] of [['dark', 'Scuro', 'moon'], ['light', 'Chiaro', 'sun'], ['system', 'Come Windows', 'monitor']]) {
       themeSeg.appendChild(h('button', { class: getThemePref() === v ? 'active' : '', onclick: () => { applyTheme(v); renderTheme(); } }, icon(ic, 'sm'), ' ', label));
     }
   };
   renderTheme();
 
-  const notifHint = h('div', { class: 'hint' });
   const isElectron = navigator.userAgent.includes('Electron');
+  const notifHint = h('div', { class: 'hint' });
+  if (!isElectron && 'Notification' in window && Notification.permission === 'denied') notifHint.textContent = 'Le notifiche sono bloccate dal browser.';
+
+  // modalità sviluppatore: si attiva toccando 7 volte il numero di versione
+  const devSlot = h('div', { class: 'stack' });
+  const devRow = h('div');
+  function renderDeveloper() {
+    const dev = !!store.settings.developer;
+    if (remoteSettings) { remoteSettings.destroy(); remoteSettings = null; }
+    clear(devSlot);
+    clear(devRow);
+    if (!dev) return;
+    remoteSettings = createRemoteSettings();
+    devSlot.append(card('Accesso dal telefono', remoteSettings.el));
+    devRow.append(h('div', { class: 'row', style: { marginTop: '10px' } },
+      toggle('Modalità sviluppatore', true, async (v) => {
+        if (v) return;
+        const r = await run(() => api('PUT', '/settings', { developer: false }));
+        if (r) toast('info', 'Modalità sviluppatore disattivata', 'Anche l\'accesso dal telefono è stato spento.');
+      })));
+  }
+  let taps = 0;
+  let tapTimer = null;
+  const version = h('div', { class: 'version-tap', style: { fontWeight: 650 }, onclick: async () => {
+    if (store.settings.developer) return;
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { taps = 0; }, 1500);
+    taps++;
+    const left = TAPS_FOR_DEVELOPER - taps;
+    if (left > 0 && left <= 3) toast('info', `Ancora ${left} ${left === 1 ? 'tocco' : 'tocchi'}`, 'per attivare la modalità sviluppatore.', 1200);
+    if (left === 0) {
+      taps = 0;
+      const r = await run(() => api('PUT', '/settings', { developer: true }));
+      if (r) toast('success', 'Modalità sviluppatore attiva', 'In questa pagina compare l\'accesso dal telefono.');
+    }
+  } }, `SonoPrint ${store.app.current || ''}`);
 
   container.append(
     h('div', { class: 'page-head' },
       h('div', { class: 'grow' },
         h('h1', { class: 'page-title' }, 'Impostazioni'),
-        h('div', { class: 'page-sub' }, 'Preferenze generali di Polipo. Le impostazioni di ogni stampante sono nella sua pagina.'))),
+        h('div', { class: 'page-sub' }, 'Preferenze generali di SonoPrint. Quelle di ogni stampante sono nella sua pagina.'))),
     h('div', { class: 'settings-form stack' },
       card('Aspetto', h('div', { class: 'field' }, h('label', null, 'Tema'), themeSeg)),
       card('Materiali per il preriscaldamento', presetsBox),
@@ -57,32 +95,42 @@ export function mountSettings(container) {
           if (v && !isElectron && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
         }),
         notifHint,
-        check('Impedisci a Windows di andare in sospensione durante la stampa', s.preventSleep, (v) => { s.preventSleep = v; }),
-        h('div', { class: 'hint faint', style: { fontSize: '12px' } }, 'Importante: le stampe vengono inviate dal PC riga per riga. Se il PC va in sospensione o chiudi Polipo, la stampa si ferma.')),
+        check('Impedisci a Windows di andare in sospensione mentre stampa una stampante USB', s.preventSleep, (v) => { s.preventSleep = v; }),
+        h('div', { class: 'hint' }, 'Le stampanti USB ricevono la stampa dal PC riga per riga: se il PC va in sospensione o chiudi SonoPrint, la stampa si ferma. Le stampanti in rete continuano da sole.')),
       h('div', null, h('button', {
         class: 'btn primary',
         onclick: (e) => run(() => api('PUT', '/settings', { presets: s.presets, notifications: s.notifications, preventSleep: s.preventSleep }), { button: e.currentTarget, success: 'Impostazioni salvate' }),
       }, icon('check'), 'Salva impostazioni')),
       card('Rete', portSettings.el),
-      card('Accesso dal telefono', remoteSettings.el),
+      devSlot,
       card('Aggiornamenti', updates.el),
       card('Informazioni',
-        h('div', { class: 'row' },
-          h('img', { src: 'img/icon.svg', alt: '', style: { width: '44px', height: '44px' } }),
+        h('div', { class: 'row', style: { alignItems: 'flex-start' } },
+          h('img', { src: 'img/icon.svg', alt: '', style: { width: '48px', height: '48px', borderRadius: '12px' } }),
           h('div', null,
-            h('div', { style: { fontWeight: 700 } }, `Polipo ${store.app.current || ''}`),
-            h('div', { class: 'dim', style: { fontSize: '13px' } }, 'Controllo di più stampanti 3D via USB, ispirato a OctoPrint. Compatibile con firmware Marlin, Prusa, RepRap e derivati.'),
-            h('div', { class: 'made-by', style: { marginTop: '6px' } }, 'made by ', h('b', null, 'zonozero')))))));
+            version,
+            h('div', { class: 'dim', style: { fontSize: '13px', maxWidth: '62ch' } }, 'Controlla più stampanti 3D insieme: via USB (Marlin, Prusa, RepRap) e in rete (Bambu Lab, Klipper, PrusaLink, OctoPrint).'),
+            h('div', { class: 'made-by', style: { textAlign: 'left', marginTop: '8px' } }, 'made by ', h('b', null, 'sonozero')),
+            devRow)))));
 
-  if (!isElectron && 'Notification' in window && Notification.permission === 'denied') {
-    notifHint.textContent = 'Le notifiche sono bloccate dal browser.';
-  }
+  renderDeveloper();
+  offs.push(on('settings', () => {
+    const was = !!remoteSettings;
+    if (was !== !!store.settings.developer) renderDeveloper();
+  }));
 
-  return { destroy() { updates.destroy(); portSettings.destroy(); remoteSettings.destroy(); } };
+  return {
+    destroy() {
+      offs.forEach((f) => f());
+      updates.destroy();
+      portSettings.destroy();
+      if (remoteSettings) remoteSettings.destroy();
+    },
+  };
 }
 
 function card(title, ...children) {
-  return h('div', { class: 'card settings-section' },
+  return h('section', { class: 'card settings-section' },
     h('div', { class: 'card-head' }, h('div', { class: 'card-title' }, title)),
     h('div', { class: 'card-body stack' }, ...children));
 }

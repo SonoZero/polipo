@@ -1,9 +1,9 @@
-// Comunicazione con il servizio Polipo: API REST + WebSocket, e stato condiviso.
+// Comunicazione con il servizio SonoPrint: API REST + WebSocket, e stato condiviso.
 
-const TOKEN = document.querySelector('meta[name="polipo-token"]').content;
+const TOKEN = document.querySelector('meta[name="sonoprint-token"]').content;
 
 export async function api(method, path, body) {
-  const opts = { method, headers: { 'X-Polipo-Token': TOKEN } };
+  const opts = { method, headers: { 'X-SonoPrint-Token': TOKEN } };
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -15,16 +15,25 @@ export async function api(method, path, body) {
   return data;
 }
 
+export function cameraUrl(printerId) {
+  return `/api/printers/${encodeURIComponent(printerId)}/camera?token=${TOKEN}`;
+}
+
 export function fileUrl(name, kind) {
   return `/api/files/${encodeURIComponent(name)}/${kind}?token=${TOKEN}`;
 }
 
-/** Carica un file con barra di avanzamento (XHR supporta upload.onprogress). */
+/** Carica un file nell'archivio con barra di avanzamento. */
 export function uploadFile(file, onProgress) {
+  return uploadTo('/files?name=' + encodeURIComponent(file.name), file, onProgress);
+}
+
+/** Invia un file a un indirizzo delle API (XHR supporta upload.onprogress). */
+export function uploadTo(path, file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/files?name=' + encodeURIComponent(file.name));
-    xhr.setRequestHeader('X-Polipo-Token', TOKEN);
+    xhr.open('POST', '/api' + path);
+    xhr.setRequestHeader('X-SonoPrint-Token', TOKEN);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
     xhr.onload = () => {
@@ -192,5 +201,9 @@ export function printerList() {
 }
 
 export function fileByName(name) {
-  return store.files.find((f) => f.name === name) || null;
+  const exact = store.files.find((f) => f.name === name);
+  if (exact || !name) return exact || null;
+  // le stampanti in rete a volte riportano il nome senza estensione
+  const base = (n) => String(n).replace(/(\.gcode)?\.3mf$|\.(gcode|gco|g)$/i, '');
+  return store.files.find((f) => base(f.name) === base(name)) || null;
 }

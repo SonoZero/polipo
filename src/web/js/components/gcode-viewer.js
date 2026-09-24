@@ -74,7 +74,10 @@ export function createGcodeViewer(printerId) {
   function currentFileName() {
     const p = printer();
     if (manualFile) return manualFile;
-    if (p && p.job) return p.job.file;
+    if (p && p.job) {
+      const f = store.files.find((x) => baseName(x.name) === baseName(p.job.file));
+      if (f) return f.name;
+    }
     return store.files[0] ? store.files[0].name : null;
   }
 
@@ -88,7 +91,7 @@ export function createGcodeViewer(printerId) {
     clear(fileSelect);
     if (!store.files.length) fileSelect.appendChild(h('option', { value: '' }, 'Nessun file caricato'));
     for (const f of store.files) {
-      const label = p && p.job && p.job.file === f.name ? `${f.name} (in stampa)` : f.name;
+      const label = p && p.job && baseName(p.job.file) === baseName(f.name) ? `${f.name} (in stampa)` : f.name;
       fileSelect.appendChild(h('option', { value: f.name }, label));
     }
     if (selected) fileSelect.value = selected;
@@ -142,12 +145,22 @@ export function createGcodeViewer(printerId) {
 
   function isPrintingThis() {
     const p = printer();
-    return !!(p && p.job && data && p.job.file === currentFileName());
+    return !!(p && p.job && data && baseName(p.job.file) === baseName(currentFileName()));
+  }
+
+  /** Punto del file raggiunto: esatto per le stampanti USB, stimato per quelle in rete. */
+  function jobPos(job) {
+    if (job.filePos !== undefined && job.filePos !== null) return job.filePos;
+    if (job.layer && data.layers.length) {
+      const next = data.layers[Math.min(job.layer, data.layers.length)];
+      return next ? next.start - 1 : (data.size || Infinity);
+    }
+    return Math.round((job.progress || 0) * (data.size || 0));
   }
 
   function syncFollow() {
     if (!data || !opts.follow || !isPrintingThis()) return;
-    const pos = printer().job.filePos || 0;
+    const pos = jobPos(printer().job);
     let idx = 0;
     for (let i = 0; i < data.layers.length; i++) { if (data.layers[i].start <= pos) idx = i; else break; }
     if (idx !== layer) setLayer(idx);
@@ -216,7 +229,7 @@ export function createGcodeViewer(printerId) {
       drawLayer(ctx, data.layers[layer - 1], { extrude: css('--text-faint'), alpha: 0.35, lw, sx, sy });
     }
     const printingThis = isPrintingThis();
-    const filePos = printingThis ? (p.job.filePos || 0) : Infinity;
+    const filePos = printingThis ? jobPos(p.job) : Infinity;
     drawLayer(ctx, data.layers[layer], {
       extrude: css('--accent'), pending: printingThis ? css('--text-faint') : null,
       travel: opts.travel ? css('--info') : null, alpha: 1, lw, sx, sy, filePos,
@@ -280,4 +293,8 @@ export function createGcodeViewer(printerId) {
       cancelAnimationFrame(raf);
     },
   };
+}
+
+function baseName(name) {
+  return String(name || '').replace(/(\.gcode)?\.3mf$|\.(gcode|gco|g)$/i, '');
 }

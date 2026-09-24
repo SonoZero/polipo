@@ -18,10 +18,10 @@ export function createPortSettings() {
     const input = h('input', { class: 'input num', type: 'number', min: '1024', max: '65535', value: String(n.configuredPort), style: { width: '130px' } });
     const apply = async (button) => {
       const port = Number(input.value);
-      if (port === n.port) return toast('info', 'Nessuna modifica', `Polipo usa già la porta ${port}.`);
+      if (port === n.port) return toast('info', 'Nessuna modifica', `SonoPrint usa già la porta ${port}.`);
       const r = await run(() => api('PUT', '/settings', { port }), { button });
       if (!r) return;
-      toast('success', 'Porta cambiata', `Polipo ora è su http://127.0.0.1:${port}`);
+      toast('success', 'Porta cambiata', `SonoPrint ora è su http://127.0.0.1:${port}`);
       // nell'app desktop la finestra viene ricaricata dal processo principale
       if (!isElectron) setTimeout(() => { location.href = `http://127.0.0.1:${port}/#/settings`; }, 1000);
     };
@@ -30,9 +30,9 @@ export function createPortSettings() {
       h('div', { class: 'field' },
         h('label', null, 'Porta dell\'interfaccia'),
         h('div', { class: 'row' }, input, h('button', { class: 'btn', onclick: (e) => apply(e.currentTarget) }, icon('check'), 'Applica')),
-        h('div', { class: 'hint' }, `Indirizzo attuale: ${n.url} — le stampe in corso non vengono interrotte. Porte valide: da 1024 a 65535.`)),
+        h('div', { class: 'hint' }, `Indirizzo attuale: ${n.url}. Le stampe in corso non vengono interrotte. Porte valide: da 1024 a 65535.`)),
       n.portFallback
-        ? h('div', { class: 'alert warn' }, icon('alert', 'sm'), h('div', null, `La porta ${n.configuredPort} era già occupata all'avvio, quindi Polipo sta usando la ${n.port}. Scegli una porta libera e premi Applica.`))
+        ? h('div', { class: 'alert warn' }, icon('alert', 'sm'), h('div', null, `La porta ${n.configuredPort} era già occupata all'avvio, quindi SonoPrint sta usando la ${n.port}. Scegli una porta libera e premi Applica.`))
         : null,
     ].filter(Boolean));
   }
@@ -42,7 +42,7 @@ export function createPortSettings() {
   return { el, destroy() { offs.forEach((f) => f()); } };
 }
 
-/** Accesso dall'app Polipo sul telefono, con abbinamento tramite QR code. */
+/** Accesso dall'app SonoPrint sul telefono, con abbinamento tramite QR code. */
 export function createRemoteSettings() {
   const el = h('div', { class: 'stack' });
   let pairing = null;
@@ -61,11 +61,11 @@ export function createRemoteSettings() {
     const enabled = !!(store.settings.remote && store.settings.remote.enabled);
     clear(el);
     el.append(
-      check('Consenti l\'accesso dall\'app Polipo sul telefono', enabled, (v) => {
+      check('Consenti l\'accesso dall\'app SonoPrint sul telefono', enabled, (v) => {
         run(() => api('PUT', '/settings', { remote: { enabled: v } }), { success: v ? 'Accesso dal telefono attivato' : 'Accesso dal telefono disattivato' });
       }),
       h('div', { class: 'hint faint', style: { fontSize: '12px' } },
-        'Polipo si apre alla rete di casa, protetto da una chiave segreta che conosce solo il tuo telefono. La pagina web e le impostazioni di rete restano accessibili solo da questo PC.'));
+        'SonoPrint si apre alla rete di casa, protetto da una chiave segreta che conosce solo il tuo telefono. La pagina web e le impostazioni di rete restano accessibili solo da questo PC.'));
     if (!enabled) { pairing = null; return; }
     if (!pairing) { loadPairing(); el.append(h('div', { class: 'dim' }, 'Preparo il codice di abbinamento…')); return; }
 
@@ -79,12 +79,12 @@ export function createRemoteSettings() {
 
     el.append(h('div', { class: 'pair-grid' },
       h('div', { class: 'stack', style: { alignItems: 'center', gap: '8px' } }, qr,
-        h('div', { class: 'faint', style: { fontSize: '12px' } }, 'Inquadralo con l\'app Polipo')),
+        h('div', { class: 'faint', style: { fontSize: '12px' } }, 'Inquadralo con l\'app SonoPrint')),
       h('div', { class: 'stack' },
         h('ol', { class: 'steps-list' },
-          h('li', null, 'Apri l\'app ', h('b', null, 'Polipo'), ' sul telefono e tocca ', h('b', null, 'Abbina con QR code'), '.'),
+          h('li', null, 'Apri l\'app ', h('b', null, 'SonoPrint'), ' sul telefono e tocca ', h('b', null, 'Abbina con QR code'), '.'),
           h('li', null, 'Inquadra il codice qui accanto. Telefono e PC devono essere sulla stessa rete Wi-Fi.'),
-          h('li', null, 'Se Windows chiede di consentire l\'accesso alla rete a Polipo, scegli ', h('b', null, 'Reti private'), '.'),
+          h('li', null, 'Se Windows chiede di consentire l\'accesso alla rete a SonoPrint, scegli ', h('b', null, 'Reti private'), '.'),
           h('li', null, 'Fuori casa: installa ', h('a', { href: 'https://tailscale.com/download', target: '_blank', rel: 'noopener' }, 'Tailscale'), ' (gratis) su PC e telefono; poi abbina di nuovo e l\'app userà anche l\'indirizzo Tailscale.')),
         h('div', { class: 'field' }, h('label', null, `Indirizzi di ${pairing.hostname}`), ...addresses),
         h('div', { class: 'field' },

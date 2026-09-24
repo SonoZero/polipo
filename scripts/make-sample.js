@@ -1,7 +1,7 @@
 'use strict';
 
 // Genera un G-code di esempio (un portapenne esagonale con infill) in stile PrusaSlicer,
-// con miniatura PNG, per provare Polipo con la stampante virtuale.
+// con miniatura PNG, per provare SonoPrint con la stampante virtuale.
 //   node scripts/make-sample.js [cartella]
 
 const fs = require('fs');

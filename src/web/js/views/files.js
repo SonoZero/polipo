@@ -1,4 +1,4 @@
-// Archivio dei file G-code, condiviso da tutte le stampanti.
+// Archivio dei file da stampare (G-code e progetti .gcode.3mf), condiviso da tutte le stampanti.
 
 import { h, icon, clear, fmtDuration, fmtSize, fmtFilament, fmtRelative, fmtDate } from '../util.js';
 import { api, store, on, uploadFile, fileUrl } from '../api.js';
@@ -10,14 +10,14 @@ export function mountFiles(container) {
   let query = '';
   let sort = 'recent';
 
-  const fileInput = h('input', { type: 'file', accept: '.gcode,.gco,.g', multiple: true, hidden: true, onchange: (e) => { upload([...e.target.files]); e.target.value = ''; } });
+  const fileInput = h('input', { type: 'file', accept: '.gcode,.gco,.g,.3mf', multiple: true, hidden: true, onchange: (e) => { upload([...e.target.files]); e.target.value = ''; } });
   const uploads = h('div', { class: 'upload-progress stack', style: { gap: '8px' } });
   const listCard = h('div', { class: 'card file-list' });
   const drop = h('div', { class: 'dropzone' },
     icon('upload'),
     h('div', { class: 'grow' },
-      h('div', { style: { fontWeight: 650, color: 'var(--text)' } }, 'Trascina qui i file G-code'),
-      h('div', { style: { fontSize: '13px' } }, 'Oppure scegli i file dal computer. Esporta dallo slicer (Cura, PrusaSlicer, Orca…) in formato .gcode.')),
+      h('div', { style: { fontWeight: 600, color: 'var(--text)' } }, 'Trascina qui i file da stampare'),
+      h('div', { style: { fontSize: '13px' } }, 'G-code da Cura, PrusaSlicer e OrcaSlicer, oppure progetti .gcode.3mf di Bambu Studio per le stampanti Bambu Lab.')),
     h('button', { class: 'btn primary', onclick: () => fileInput.click() }, icon('upload'), 'Scegli file'));
 
   const sortSel = h('select', { class: 'select', style: { width: '170px' }, onchange: (e) => { sort = e.target.value; render(); } },
@@ -29,7 +29,7 @@ export function mountFiles(container) {
   container.append(
     h('div', { class: 'page-head' },
       h('div', { class: 'grow' },
-        h('h1', { class: 'page-title' }, 'File G-code'),
+        h('h1', { class: 'page-title' }, 'File'),
         h('div', { class: 'page-sub' }, 'Un unico archivio per tutte le stampanti: carica una volta, stampa dove vuoi.')),
       h('input', { class: 'input', placeholder: 'Cerca…', style: { width: '220px' }, oninput: (e) => { query = e.target.value; render(); } }),
       sortSel,
@@ -55,8 +55,8 @@ export function mountFiles(container) {
 
   async function upload(files) {
     for (const f of files) {
-      if (!/\.(gcode|gco|g)$/i.test(f.name)) {
-        toast('warn', 'File ignorato', `${f.name}: non è un file G-code.`);
+      if (!/\.(gcode|gco|g|3mf)$/i.test(f.name)) {
+        toast('warn', 'File ignorato', `${f.name}: non è un file G-code né un progetto .gcode.3mf.`);
         continue;
       }
       const bar = h('div');
@@ -85,7 +85,7 @@ export function mountFiles(container) {
     else if (sort === 'size') files.sort((a, b) => b.size - a.size);
 
     if (!store.files.length) {
-      listCard.appendChild(h('div', { class: 'empty' }, icon('files'), h('h3', null, 'Nessun file ancora'), h('p', null, 'Carica il tuo primo G-code per stamparlo su una qualsiasi delle tue stampanti.')));
+      listCard.appendChild(h('div', { class: 'empty' }, icon('files'), h('h3', null, 'Nessun file ancora'), h('p', null, 'Carica il tuo primo file per stamparlo su una qualsiasi delle tue stampanti.')));
       return;
     }
     listCard.appendChild(h('div', { class: 'file-row head' },
@@ -112,22 +112,23 @@ export function mountFiles(container) {
     return h('div', { class: 'file-row' },
       fileThumb(f),
       h('div', { style: { minWidth: 0 } },
-        h('div', { class: 'file-name', title: f.name }, f.name),
+        h('div', { class: 'file-name', title: f.name }, h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, f.name),
+          f.kind === '3mf' ? h('span', { class: 'chip', title: 'Progetto per stampanti Bambu Lab' }, '3MF') : null),
         h('div', { class: 'file-sub' }, h('span', null, `caricato ${fmtRelative(f.addedAt)}`), ...details.map((d) => h('span', null, d)))),
       h('span', { class: 'opt num' }, fmtDuration(m.estimatedTime, { short: true })),
       h('span', { class: 'opt num' }, fmtFilament(m.filamentLength, m.filamentWeight)),
       h('span', { class: 'opt num' }, fmtSize(f.size)),
       h('span', { class: 'opt num', title: last ? `Ultima: ${fmtDate(last.date)} su ${last.printer}` : 'Mai stampato' },
         f.prints && (f.prints.success || f.prints.failure)
-          ? [h('span', { class: 'ok-count' }, `✓ ${f.prints.success}`), ' ', f.prints.failure ? h('span', { class: 'ko-count' }, `✗ ${f.prints.failure}`) : null]
-          : h('span', { class: 'faint' }, '—')),
+          ? [h('span', { class: 'ok-count', title: 'Riuscite' }, `${f.prints.success} ok`), f.prints.failure ? h('span', { class: 'ko-count', title: 'Interrotte' }, `, ${f.prints.failure} ko`) : null]
+          : h('span', { class: 'faint' }, '-')),
       h('div', { class: 'file-actions' },
         h('button', { class: 'btn primary sm', onclick: (e) => printOnMenu(e.currentTarget, f.name) }, icon('play', 'sm'), 'Stampa su…'),
-        h('a', { class: 'btn sm icon-only ghost', title: 'Scarica', href: fileUrl(f.name, 'content'), download: f.name }, icon('download', 'sm')),
+        h('a', { class: 'btn sm icon-only ghost', title: 'Scarica', href: fileUrl(f.name, 'download'), download: f.name }, icon('download', 'sm')),
         h('button', {
           class: 'btn sm icon-only ghost', title: 'Elimina',
           onclick: async () => {
-            const ok = await confirmDialog({ title: 'Eliminare il file?', message: `"${f.name}" verrà eliminato definitivamente dall'archivio di Polipo.`, confirmLabel: 'Elimina', danger: true });
+            const ok = await confirmDialog({ title: 'Eliminare il file?', message: `"${f.name}" verrà eliminato definitivamente dall'archivio di SonoPrint.`, confirmLabel: 'Elimina', danger: true });
             if (ok) run(() => api('DELETE', `/files/${encodeURIComponent(f.name)}`));
           },
         }, icon('trash', 'sm'))));

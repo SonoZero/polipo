@@ -63,7 +63,7 @@ class Updater extends EventEmitter {
   }
 
   async check() {
-    if (!this.autoUpdater) throw new Error('Gli aggiornamenti automatici funzionano solo nella versione installata di Polipo.');
+    if (!this.autoUpdater) throw new Error('Gli aggiornamenti automatici funzionano solo nella versione installata di SonoPrint.');
     // se c'è già un aggiornamento pronto non serve ricontrollare
     if (['downloading', 'downloaded', 'checking'].includes(this.state.status)) return this.state;
     try {
@@ -78,7 +78,7 @@ class Updater extends EventEmitter {
     if (!this.autoUpdater || this.state.status !== 'downloaded') {
       throw new Error('Nessun aggiornamento pronto da installare.');
     }
-    // installazione silenziosa e riavvio automatico di Polipo
+    // installazione silenziosa e riavvio automatico di SonoPrint
     setTimeout(() => this.autoUpdater.quitAndInstall(true, true), 300);
     return { ok: true };
   }

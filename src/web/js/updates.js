@@ -42,7 +42,7 @@ export function createUpdateBanner() {
     } else if (a.status === 'downloaded') {
       el.append(
         h('div', { class: 'ub-title' }, icon('zap', 'sm'), `Versione ${a.version} pronta`),
-        h('div', { class: 'ub-text' }, printing ? 'Si installerà quando chiudi Polipo, oppure riavvia a fine stampa.' : 'Riavvia Polipo per aggiornarlo.'),
+        h('div', { class: 'ub-text' }, printing ? 'Si installerà quando chiudi SonoPrint, oppure riavvia a fine stampa.' : 'Riavvia SonoPrint per aggiornarlo.'),
         h('button', { class: 'btn primary sm block', disabled: printing, onclick: (e) => installUpdate(e.currentTarget) }, icon('refresh', 'sm'), 'Riavvia e aggiorna'));
     } else {
       el.append(
@@ -81,7 +81,7 @@ export function createUpdateSettings() {
     body.append(...[
       h('div', { class: 'row' },
         h('div', { class: 'grow' },
-          h('div', { style: { fontWeight: 650 } }, `Versione installata: ${a.current || '—'}`),
+          h('div', { style: { fontWeight: 650 } }, `Versione installata: ${a.current || '-'}`),
           h('div', { class: a.status === 'error' ? 'dim r-failed' : 'dim', style: { fontSize: '13px' } }, statusText(a))),
         a.status === 'downloaded'
           ? h('button', { class: 'btn primary', onclick: (e) => installUpdate(e.currentTarget) }, icon('refresh'), 'Riavvia e aggiorna')

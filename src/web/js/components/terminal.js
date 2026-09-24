@@ -17,16 +17,24 @@ export function createTerminal(printerId) {
   historyByPrinter.set(printerId, history);
   let histIdx = -1;
 
-  const quick = [
+  const p = store.printers.get(printerId);
+  const type = (p && p.type) || 'usb';
+  const sendOnly = p && p.capabilities && p.capabilities.terminal === 'send';
+  const quick = type === 'usb' ? [
     ['M114', 'Posizione'],
     ['M105', 'Temperature'],
     ['M115', 'Info firmware'],
     ['M503', 'Impostazioni EEPROM'],
     ['M501', 'Ricarica EEPROM'],
     ['M500', 'Salva EEPROM'],
-  ];
+  ] : type === 'klipper' ? [
+    ['M114', 'Posizione'],
+    ['STATUS', 'Stato'],
+    ['FIRMWARE_RESTART', 'Riavvia firmware'],
+  ] : [];
 
   const el = h('div', { class: 'term' },
+    sendOnly ? h('div', { class: 'alert info', style: { marginBottom: '10px' } }, icon('info', 'sm'), h('div', null, 'Questa stampante esegue i comandi ma non rimanda le risposte: qui vedi i comandi inviati e i messaggi di SonoPrint.')) : null,
     h('div', { class: 'term-quick' },
       ...quick.map(([cmd, label]) => h('button', { class: 'btn sm', title: cmd, onclick: () => send(cmd) }, label)),
       h('span', { class: 'grow' }),

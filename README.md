@@ -1,68 +1,88 @@
-# 🐙 Polipo
+# SonoPrint
 
-**Polipo** è un'app per Windows che controlla **più stampanti 3D contemporaneamente** via USB, in stile [OctoPrint](https://octoprint.org).
-Il nome viene da *octopus* → polipo, e *poli-* = più stampanti.
+**SonoPrint** (prima si chiamava Polipo) è un'app per Windows che controlla **più stampanti 3D contemporaneamente**, in stile [OctoPrint](https://octoprint.org): via USB oppure in rete (Bambu Lab, Klipper, PrusaLink e OctoPrint).
 
-*made by zonozero*
+*made by sonozero*
 
 ## Cosa sa fare
 
-- **Più stampanti insieme**: ognuna con la sua connessione USB, la sua stampa e le sue impostazioni. La *Panoramica* le mostra tutte.
-- **Connessione USB automatica**: elenca le porte COM, segnala con ★ quelle che sembrano stampanti (CH340, FTDI, STM32, Prusa…) e trova da solo il baudrate.
-- **Stampa da PC**: invio del G-code riga per riga con numeri di riga, checksum e reinvio automatico delle righe corrotte (come OctoPrint).
-- **Pausa / ripresa sicure**: in pausa ritrae il filamento e alza l'ugello (opzionale: parcheggio della testina); alla ripresa ripristina posizione, estrusione e velocità.
-- **Annullamento** con script configurabile (spegne i riscaldatori, alza l'ugello, spegne i motori) e **arresto di emergenza** (M112).
-- **Temperature** in tempo reale con grafico, impostazione dei target e preriscaldamento rapido (PLA, PETG, ABS, TPU… personalizzabili).
-- **Controllo manuale**: movimento X/Y/Z, home, estrusione/retrazione, ventola, velocità (M220) e flusso (M221), cambio filamento (M600).
-- **Terminale** G-code con cronologia dei comandi e filtro delle righe di stampa.
-- **Archivio file** condiviso da tutte le stampanti, con trascinamento, miniatura dello slicer, tempo stimato, filamento, layer e ingombro.
+- **Più stampanti insieme**, anche di tipi diversi: ognuna con la sua connessione, la sua stampa e le sue impostazioni. La *Panoramica* le mostra tutte.
+- **Stampanti in rete con ricerca automatica**: SonoPrint trova da solo le Bambu Lab, le stampanti Klipper, PrusaLink e OctoPrint nella rete di casa; basta premere **Aggiungi**.
+- **Stampanti USB**: elenca le porte COM, segnala quelle che sembrano stampanti (CH340, FTDI, STM32, Prusa...) e trova da solo il baudrate. Invio del G-code riga per riga con numeri di riga, checksum e reinvio automatico delle righe corrotte.
+- **Aggiornamento del firmware e del software** per ogni tipo di stampante (vedi sotto).
+- **Pausa e ripresa sicure**, **annullamento** con script configurabile e **arresto di emergenza**.
+- **Temperature** in tempo reale con grafico e preriscaldamento rapido (PLA, PETG, ABS, TPU... personalizzabili).
+- **Controllo manuale**: movimento X/Y/Z, home, estrusione, ventola, velocità, flusso e cambio filamento.
+- **Terminale** G-code con cronologia dei comandi.
+- **Archivio file** condiviso da tutte le stampanti: `.gcode` e progetti `.gcode.3mf` di Bambu Studio e OrcaSlicer, con miniatura, tempo stimato, filamento, layer e ingombro.
 - **Anteprima G-code** layer per layer che segue la stampa in corso.
-- **Tempo rimanente e ora di fine** (usa i comandi M73 di PrusaSlicer/Orca, i commenti di Cura o la stima dello slicer).
-- **Webcam** USB collegata al PC oppure flusso MJPEG/snapshot di rete.
-- **Cronologia** delle stampe con statistiche, **notifiche di Windows** a fine stampa, blocco della **sospensione** del PC durante la stampa.
-- **Accesso dal telefono**: abbinamento con un QR code e accesso protetto da una chiave segreta.
-- **Porta dell'interfaccia modificabile** dalle Impostazioni, senza interrompere le stampe.
+- **Tempo rimanente e ora di fine**.
+- **Telecamere**: webcam USB, flussi MJPEG/snapshot di rete, telecamera integrata delle Bambu P1 e A1 e telecamere di Klipper.
+- **Cronologia** delle stampe con statistiche, **notifiche di Windows** a fine stampa, blocco della **sospensione** del PC durante le stampe USB.
+- **Accesso dal telefono** con QR code e chiave segreta.
+- **Temi chiaro e scuro**, interfaccia che funziona anche senza internet.
 - **Stampante virtuale** che simula un firmware Marlin, per provare tutto senza stampante.
 
-Compatibile con i firmware che parlano G-code via seriale: **Marlin** (Creality, Anycubic, Artillery, Elegoo, Sovol…), **Prusa**, **RepRapFirmware** e derivati.
+## Stampanti supportate
 
-> ⚠️ Le stampe partono dal PC: se chiudi Polipo o il PC va in sospensione, la stampa si ferma. Polipo chiede conferma prima di chiudersi e impedisce la sospensione mentre stampa.
+| Tipo | Cosa serve |
+| --- | --- |
+| **USB** (Marlin, Prusa, RepRapFirmware e derivati) | Cavo USB. Le stampe partono dal PC: se chiudi SonoPrint o il PC va in sospensione, la stampa si ferma. |
+| **Bambu Lab** (X1, P1, A1) | Sulla stampante attiva la **Modalità solo LAN** e la **Modalità sviluppatore**; servono indirizzo IP e codice di accesso LAN. |
+| **Klipper** (Moonraker, come Mainsail e Fluidd) | Indirizzo della stampante; la chiave API solo se Moonraker la richiede. |
+| **PrusaLink** (MK4, MK3.9, Core One, MINI+, XL) | Indirizzo, nome utente e password da *Impostazioni > Rete > PrusaLink* sulla stampante. PrusaLink non permette di muovere gli assi né di impostare le temperature. |
+| **OctoPrint** | Indirizzo e chiave API: premi **Chiedi l'accesso** e conferma nella pagina di OctoPrint. |
+
+Le stampanti in rete continuano a stampare da sole anche se chiudi SonoPrint.
 
 ## Uso
 
-1. Collega la stampante al PC con il cavo USB e accendila.
-2. Apri Polipo → **Aggiungi stampante** → scegli nome, modello (il volume di stampa si compila da solo) e porta USB → **Salva e connetti**.
-3. Carica un file `.gcode` nella pagina **File G-code** (o trascinalo).
-4. Premi **Stampa su…** e scegli la stampante, oppure dalla pagina della stampante **Scegli file da stampare**.
+1. Apri SonoPrint e premi **Aggiungi stampante**: in alto compaiono quelle trovate in rete, altrimenti scegli il tipo e compila i dati.
+2. Carica un file `.gcode` o `.gcode.3mf` nella pagina **File** (o trascinalo).
+3. Premi **Stampa su...** e scegli la stampante, oppure dalla pagina della stampante **Scegli file da stampare**.
 
-Se la connessione non riesce:
+Se una stampante USB non si connette:
 - chiudi Cura, PrusaSlicer, Arduino IDE o altri programmi che usano la stessa porta COM;
-- installa il driver CH340 se la porta non compare (schede Creality/Anycubic più vecchie);
+- installa il driver CH340 se la porta non compare (schede Creality e Anycubic più vecchie);
 - prova un altro baudrate (le Anycubic i3 Mega usano 250000, quasi tutte le altre 115200).
+
+## Aggiornamento del firmware
+
+Dalla pagina di ogni stampante, scheda **Firmware**:
+
+- **USB, schede a 8 bit** (ATmega2560, 1284P, 328P con bootloader): SonoPrint scrive il file `.hex` via USB e rilegge ogni pagina per verificarla.
+- **USB, schede a 32 bit**: copia il file `.bin` sulla scheda SD con il nome giusto; al riavvio la stampante lo installa.
+- **Bambu Lab**: aggiornamento offline tramite scheda microSD nella stampante (le P1 devono avere almeno il firmware 01.07, le A1 almeno il 01.04).
+- **Klipper**: update manager di Moonraker (Klipper, Moonraker, interfacce e sistema).
+- **PrusaLink** e **OctoPrint**: controllo della versione e aggiornamento del software di OctoPrint.
+
+Per Marlin e Prusa SonoPrint confronta la versione installata con l'ultima pubblicata su GitHub.
 
 ## Accesso dal telefono
 
-In **Impostazioni → Accesso dal telefono** Polipo si apre alla rete di casa e mostra un QR code da inquadrare con l'app Polipo per il telefono.
+In **Impostazioni > Accesso dal telefono** SonoPrint si apre alla rete di casa e mostra un QR code da inquadrare con l'app per il telefono.
 
 - L'accesso è protetto da una **chiave segreta** casuale contenuta nel QR code; si può rigenerare in qualsiasi momento (i telefoni abbinati andranno riabbinati).
-- Dalla rete si raggiungono solo le API per l'app: la pagina web di Polipo, la porta e le impostazioni di rete restano accessibili **solo dal PC**.
+- Dalla rete si raggiungono solo le API per l'app: la pagina web di SonoPrint, la porta e le impostazioni di rete restano accessibili **solo dal PC**.
 - Al primo avvio Windows può chiedere di consentire l'accesso alla rete: scegli **Reti private**.
 - **Fuori casa**: installa [Tailscale](https://tailscale.com/download) su PC e telefono; è più sicuro che aprire porte sul router.
 
-## Aggiornamenti
+## Aggiornamenti dell'app
 
-La versione installata (`Polipo-Setup-x.y.z.exe`) si aggiorna da sola dalle [Release di GitHub](../../releases):
+La versione installata (`SonoPrint-Setup-x.y.z.exe`) si aggiorna da sola dalle [Release di GitHub](../../releases):
 
-- controlla all'avvio e ogni 6 ore (o da **Impostazioni → Aggiornamenti → Controlla ora**);
+- controlla all'avvio e ogni 6 ore (o da **Impostazioni > Aggiornamenti > Controlla ora**);
 - scarica la nuova versione in background e mostra **Riavvia e aggiorna** nella barra laterale;
-- se una stampa è in corso non interrompe nulla: l'aggiornamento si installa a fine stampa o alla chiusura di Polipo.
+- se una stampa USB è in corso non interrompe nulla: l'aggiornamento si installa a fine stampa o alla chiusura dell'app.
 
-La versione portable (`Polipo-Portable-x.y.z.exe`) non può sostituirsi da sola: avvisa quando esce una nuova versione e apre la pagina di download.
+Chi ha installato Polipo riceve l'aggiornamento a SonoPrint come un normale aggiornamento; stampanti, file e cronologia vengono copiati alla prima apertura.
+
+La versione portable (`SonoPrint-Portable-x.y.z.exe`) non può sostituirsi da sola: avvisa quando esce una nuova versione e apre la pagina di download.
 
 ### Pubblicare una nuova versione
 
 ```bash
-npm version patch        # 0.1.0 -> 0.1.1 (oppure: minor / major), crea commit e tag v0.1.1
+npm version minor        # 0.1.1 -> 0.2.0 (oppure: patch / major), crea commit e tag
 git push --follow-tags   # GitHub Actions compila e pubblica la Release
 ```
 
@@ -76,12 +96,13 @@ Serve [Node.js](https://nodejs.org) 20 o superiore.
 
 ```bash
 npm install                     # dipendenze
-node node_modules/electron/install.js   # solo se Electron non ha scaricato il suo eseguibile
 npm start                       # avvia l'app desktop
 npm run server                  # solo il servizio, interfaccia su http://127.0.0.1:5723
-npm test                        # test del protocollo e della rete (con la stampante virtuale)
+npm test                        # test automatici (stampante virtuale e stampanti in rete finte)
 npm run dist                    # crea installer e versione portable in dist/ (senza pubblicarli)
+node scripts/fake-printers.js   # stampanti in rete finte sul PC (Bambu, Klipper, PrusaLink, OctoPrint)
 node scripts/make-sample.js     # crea un G-code di esempio in samples/
+node scripts/build-assets.js    # copia icone e font in src/web dopo aver aggiunto un'icona
 ```
 
 ### Struttura
@@ -93,13 +114,15 @@ src/
   server/
     index.js              server HTTP + WebSocket (token per il PC, chiave per il telefono)
     manager.js            elenco stampanti, configurazione, cronologia
-    printer.js            protocollo Marlin: connessione, coda comandi, resend, stampa, pausa
+    discovery.js          ricerca delle stampanti in rete (SSDP, mDNS, controllo degli indirizzi)
+    printers/             un modulo per tipo: marlin (USB), bambu, klipper, prusalink, octoprint
+    firmware/             scrittura via USB delle schede AVR, schede SD, ultime versioni da GitHub
     transport.js          porta seriale (serialport) o stampante virtuale
     virtual-printer.js    simulatore di firmware Marlin
-    files.js              archivio G-code e analisi dei file
+    files.js, threemf.js  archivio file, analisi del G-code e dei progetti .gcode.3mf
     gcode.js              parsing di risposte e file G-code
   web/                    interfaccia (HTML/CSS/JS senza framework)
-test/                     test automatici (node --test)
+test/                     test automatici (node --test) con stampanti finte in test/fakes
 ```
 
-I dati (stampanti, file caricati, cronologia) sono in `%APPDATA%\Polipo\data`.
+I dati (stampanti, file caricati, cronologia) sono in `%APPDATA%\SonoPrint\data`.

@@ -5,7 +5,7 @@ import { api, store, fileUrl, printerList, uploadFile, on } from './api.js';
 import { openModal, confirmDialog, openMenu, run, toast } from './ui.js';
 
 export async function connectPrinter(p, button) {
-  if (!p.config.port) return choosePortAndConnect(p);
+  if ((p.type || 'usb') === 'usb' && !p.config.port) return choosePortAndConnect(p);
   return run(() => api('POST', `/printers/${p.id}/connect`, {}), { button });
 }
 
@@ -52,8 +52,8 @@ export function portSelect(ports, value, onChange) {
     sel.appendChild(h('option', { value }, `${value} (non trovata)`));
   }
   for (const port of ports) {
-    let label = port.virtual ? port.label : `${port.path} — ${port.label.replace(`(${port.path})`, '').trim() || 'porta seriale'}`;
-    if (port.likelyPrinter) label += ' ★';
+    let label = port.virtual ? port.label : `${port.path}, ${port.label.replace(`(${port.path})`, '').trim() || 'porta seriale'}`;
+    if (port.likelyPrinter) label += ' (stampante)';
     if (port.usedBy) label += ` (in uso da ${port.usedBy})`;
     sel.appendChild(h('option', { value: port.path }, label));
   }
@@ -99,13 +99,17 @@ export function printOnMenu(anchor, fileName) {
   if (!printers.length) return toast('info', 'Nessuna stampante', 'Aggiungi prima una stampante.');
   openMenu(anchor, [
     { section: 'Stampa su' },
-    ...printers.map((p) => ({
-      label: p.config.name,
-      dot: p.config.color,
-      hint: p.state === 'operational' ? 'pronta' : (STATE_LABELS[p.state] || p.state).toLowerCase(),
-      disabled: p.state !== 'operational',
-      onClick: () => startPrint(p.id, fileName).then((r) => { if (r) location.hash = `#/printer/${p.id}`; }),
-    })),
+    ...printers.map((p) => {
+      const kind = /\.3mf$/i.test(fileName) ? '.3mf' : '.gcode';
+      const fits = ((p.capabilities && p.capabilities.files) || ['.gcode']).includes(kind);
+      return {
+        label: p.config.name,
+        dot: p.config.color,
+        hint: !fits ? 'solo G-code' : p.state === 'operational' ? 'pronta' : (STATE_LABELS[p.state] || p.state).toLowerCase(),
+        disabled: !fits || p.state !== 'operational',
+        onClick: () => startPrint(p.id, fileName).then((r) => { if (r) location.hash = `#/printer/${p.id}`; }),
+      };
+    }),
   ]);
 }
 
@@ -115,10 +119,11 @@ export function chooseFileToPrint(p) {
   const list = h('div', { class: 'file-list card', style: { maxHeight: '52vh', overflow: 'auto' } });
   const render = () => {
     clear(list);
-    const files = store.files.filter((f) => f.name.toLowerCase().includes(query.toLowerCase()));
+    const accepted = (p.capabilities && p.capabilities.files) || ['.gcode'];
+    const files = store.files.filter((f) => accepted.includes(f.kind === '3mf' ? '.3mf' : '.gcode') && f.name.toLowerCase().includes(query.toLowerCase()));
     if (!files.length) {
       list.appendChild(h('div', { class: 'empty' }, icon('files'),
-        h('p', null, store.files.length ? 'Nessun file corrisponde alla ricerca.' : 'Non hai ancora caricato file G-code.')));
+        h('p', null, store.files.length ? 'Nessun file adatto a questa stampante corrisponde alla ricerca.' : 'Non hai ancora caricato file da stampare.')));
       return;
     }
     for (const f of files) {
@@ -141,7 +146,7 @@ export function chooseFileToPrint(p) {
         }, icon('play', 'sm'), 'Stampa')));
     }
   };
-  const fileInput = h('input', { type: 'file', accept: '.gcode,.gco,.g', hidden: true, onchange: async (e) => {
+  const fileInput = h('input', { type: 'file', accept: (p.capabilities && p.capabilities.files || ['.gcode']).includes('.3mf') ? '.gcode,.gco,.g,.3mf' : '.gcode,.gco,.g', hidden: true, onchange: async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const r = await run(() => uploadFile(file));

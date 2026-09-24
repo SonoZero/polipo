@@ -1,4 +1,4 @@
-# Crea una nuova versione di Polipo quando viene pubblicato un tag "v*" (es. v0.2.0):
+# Crea una nuova versione di SonoPrint quando viene pubblicato un tag "v*" (es. v0.2.0):
 # compila installer e portable per Windows e li carica in una Release di GitHub.
 # L'app installata la trova da sola e si aggiorna.
 

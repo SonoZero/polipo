@@ -1,6 +1,6 @@
 // Avvio dell'interfaccia: tema, barra laterale, navigazione tra le pagine.
 
-import { h, icon, clear, setText, STATE_LABELS, fmtPct } from './util.js';
+import { h, icon, clear, setText, STATE_LABELS, fmtPct, PRINTER_TYPES } from './util.js';
 import { store, on, connectSocket, printerList } from './api.js';
 import { toast } from './ui.js';
 import { mountDashboard } from './views/dashboard.js';
@@ -8,7 +8,7 @@ import { mountPrinter } from './views/printer.js';
 import { mountFiles } from './views/files.js';
 import { mountHistory } from './views/history.js';
 import { mountSettings } from './views/settings.js';
-import { openPrinterForm } from './views/printer-form.js';
+import { openAddPrinter } from './views/printer-form.js';
 import { applyTheme } from './theme.js';
 import { createUpdateBanner } from './updates.js';
 
@@ -24,20 +24,20 @@ let sideRefs = new Map();
 function renderSidebar() {
   clear(sidebar);
   const route = parseRoute();
-  const navItem = (href, ic, label, active, count) => h('a', { class: 'nav-item' + (active ? ' active' : ''), href },
+  const navItem = (href, ic, label, active, count) => h('a', { class: 'nav-item' + (active ? ' active' : ''), href, 'aria-current': active ? 'page' : null },
     icon(ic), h('span', null, label), count !== undefined ? h('span', { class: 'nav-count' }, count) : null);
 
   sidebar.append(
     h('div', { class: 'brand' },
       h('img', { src: 'img/icon.svg', alt: '' }),
-      h('div', null, h('div', { class: 'brand-name' }, 'Polipo'), h('div', { class: 'brand-sub' }, 'Controllo stampanti 3D'))),
-    h('nav', { class: 'nav' },
+      h('div', null, h('div', { class: 'brand-name' }, 'SonoPrint'), h('div', { class: 'brand-sub' }, 'Stampanti 3D in un posto solo'))),
+    h('nav', { class: 'nav', 'aria-label': 'Sezioni' },
       navItem('#/', 'grid', 'Panoramica', route.name === 'dashboard'),
-      navItem('#/files', 'files', 'File G-code', route.name === 'files', store.files.length || undefined),
+      navItem('#/files', 'files', 'File', route.name === 'files', store.files.length || undefined),
       navItem('#/history', 'history', 'Cronologia', route.name === 'history'),
       navItem('#/settings', 'settings', 'Impostazioni', route.name === 'settings')),
     h('div', { class: 'side-section' }, 'Stampanti',
-      h('button', { class: 'btn ghost icon-only sm', title: 'Aggiungi stampante', onclick: () => openPrinterForm() }, icon('plus', 'sm'))),
+      h('button', { class: 'btn ghost icon-only sm', title: 'Aggiungi stampante', 'aria-label': 'Aggiungi stampante', onclick: () => openAddPrinter() }, icon('plus', 'sm'))),
   );
 
   const list = h('div', { class: 'side-printers' });
@@ -56,27 +56,28 @@ function renderSidebar() {
     updateSidePrinter(p);
   }
   if (!store.order.length) {
-    list.appendChild(h('div', { class: 'faint', style: { padding: '8px 10px', fontSize: '13px' } }, 'Nessuna stampante configurata.'));
+    list.appendChild(h('div', { class: 'faint', style: { padding: '6px 10px', fontSize: '13px' } }, 'Nessuna stampante ancora.'));
   }
   sidebar.appendChild(list);
   sidebar.appendChild(h('div', { class: 'side-footer' },
     updateBanner.el,
-    h('button', { class: 'btn block', onclick: () => openPrinterForm() }, icon('plus'), 'Aggiungi stampante'),
-    h('div', { class: 'made-by side-made' }, 'made by ', h('b', null, 'zonozero'))));
+    h('button', { class: 'btn block', onclick: () => openAddPrinter() }, icon('plus'), 'Aggiungi stampante'),
+    h('div', { class: 'made-by' }, 'made by ', h('b', null, 'sonozero'))));
 }
 
 function updateSidePrinter(p) {
   const r = sideRefs.get(p.id);
   if (!r) return;
   setText(r.name, p.config.name);
-  r.dot.style.background = p.config.color;
-  r.dot.style.boxShadow = p.state === 'offline' ? 'none' : `0 0 0 3px color-mix(in srgb, ${p.config.color} 30%, transparent)`;
-  r.dot.style.opacity = p.state === 'offline' ? 0.45 : 1;
+  const on = p.state !== 'offline';
+  r.dot.style.background = p.state === 'error' ? 'var(--danger)' : p.config.color;
+  r.dot.style.opacity = on ? 1 : 0.35;
   const printing = !!p.job;
   let sub = STATE_LABELS[p.state] || p.state;
   const t0 = p.temps && p.temps.tools && p.temps.tools.T0;
-  if (p.state !== 'offline' && t0 && t0.actual !== null) sub += ` · ${Math.round(t0.actual)}°`;
-  setText(r.sub, sub);
+  if (on && t0 && t0.actual !== null && p.state !== 'error') sub += `, ${Math.round(t0.actual)}°`;
+  const type = PRINTER_TYPES[p.type || 'usb'] || PRINTER_TYPES.usb;
+  r.sub.replaceChildren(icon(type.icon), document.createTextNode(sub));
   r.sub.style.color = p.state === 'error' ? 'var(--danger)' : '';
   setText(r.pct, printing ? fmtPct(p.job.progress) : '');
   r.bar.hidden = !printing;
@@ -109,10 +110,12 @@ function renderRoute() {
   clear(main);
   main.scrollTop = 0;
   currentKey = key;
-  const container = h('div', { class: 'page' });
+  const container = h('div', { class: 'page', id: 'content' });
   main.appendChild(container);
   if (!store.ready) {
-    container.appendChild(h('div', { class: 'empty' }, h('p', null, 'Caricamento…')));
+    container.append(
+      h('div', { class: 'skeleton', style: { height: '34px', width: '240px', marginBottom: '28px' } }),
+      h('div', { class: 'printer-grid' }, ...[0, 1, 2].map(() => h('div', { class: 'skeleton', style: { height: '260px', borderRadius: '16px' } }))));
   } else if (route.name === 'printer') {
     if (!store.printers.has(route.id)) { location.hash = '#/'; return; }
     current = mountPrinter(container, route.id, route.tab);
@@ -142,7 +145,7 @@ on('app', () => {
   const a = store.app;
   if (a.status === 'downloaded' && toastedUpdate !== a.version) {
     toastedUpdate = a.version;
-    toast('success', 'Aggiornamento pronto', `Polipo ${a.version} è stato scaricato: si installa al riavvio.`, 8000);
+    toast('success', 'Aggiornamento pronto', `SonoPrint ${a.version} è stato scaricato: si installa al riavvio.`, 8000);
   }
 });
 
@@ -152,7 +155,7 @@ on('notify', (n) => {
   toast(n.level, n.title, n.message, n.level === 'error' ? 12000 : 6000);
   // nell'app desktop le notifiche di sistema le mostra il processo principale
   if (!isElectron && store.settings.notifications && !n.quiet && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
-    new Notification(n.title || 'Polipo', { body: n.message, icon: 'img/icon.svg' });
+    new Notification(n.title || 'SonoPrint', { body: n.message, icon: 'img/icon.svg' });
   }
 });
 

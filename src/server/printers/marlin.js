@@ -1,21 +1,22 @@
 'use strict';
 
-// Una stampante: connessione, protocollo Marlin (numeri di riga + checksum,
-// resend, timeout), temperature, controllo manuale e stampa di file G-code.
+// Stampante collegata via USB: connessione, protocollo Marlin (numeri di riga +
+// checksum, resend, timeout), temperature, controllo manuale e stampa di file G-code.
 
-const { EventEmitter } = require('events');
-const { createTransport, VIRTUAL_PORT } = require('./transport');
+const { BasePrinter } = require('./base');
+const { createTransport, VIRTUAL_PORT } = require('../transport');
+const { flashHex, parseIntelHex } = require('../firmware/avr');
+const { listRemovableDrives, copyFirmwareToDrive } = require('../firmware/drives');
+const { latestRelease, compareVersions } = require('../firmware/releases');
 const {
   checksum, stripComment, commandCode, param, normalizeCommand,
   parseTemperatures, parsePosition, parseFirmwareInfo, parseCapability,
   GcodeFileReader,
-} = require('./gcode');
+} = require('../gcode');
 
 const BAUDRATES = [115200, 250000, 230400, 57600, 38400, 19200, 9600];
 const LONG_COMMANDS = new Set(['G28', 'G29', 'G32', 'G33', 'G34', 'G35', 'G4', 'M109', 'M190', 'M191', 'M400', 'M303', 'M600', 'M48', 'M0', 'M1', 'M226', 'G76', 'M1002']);
 const HISTORY_SIZE = 250;
-const LOG_SIZE = 1500;
-const TEMP_HISTORY_MS = 30 * 60 * 1000;
 const COMM_TIMEOUT = 30000;
 const LONG_TIMEOUT = 10 * 60 * 1000;
 const RESEND_ERRORS = /checksum mismatch|Line Number is not|No Line Number|No Checksum|Missing checksum|Wrong checksum|Format error|expected line|line number/i;
@@ -31,36 +32,21 @@ const DEFAULT_CANCEL_SCRIPT = [
   'M84 ; motori off',
 ].join('\n');
 
-class Printer extends EventEmitter {
+class MarlinPrinter extends BasePrinter {
   /**
    * @param {object} config configurazione salvata della stampante
    * @param {object} deps { files: FileStore }
    */
   constructor(config, deps = {}) {
-    super();
-    this.config = config;
-    this.files = deps.files || null;
+    super(config, deps);
     this.virtualOverrides = deps.virtualOptions || {};
-
-    this.state = 'offline';
-    this.error = null;
+    this.openSerial = deps.openSerial || null;
     this.transport = null;
     this.port = null;
     this.baudrate = null;
-    this.firmware = null;
-    this.capabilities = {};
-    this.temps = emptyTemps(config.extruders || 1);
-    this.tempHistory = [];
-    this.position = null;
-    this.fanSpeed = null;
-    this.feedRate = 100;
-    this.flowRate = 100;
-    this.log = [];
-    this.job = null;
-    this.lastJob = null;
+    this.fwCaps = {};
 
     this._resetComm();
-    this._updateTimer = null;
     this._tickTimer = null;
     this._connectToken = 0;
   }
@@ -68,48 +54,24 @@ class Printer extends EventEmitter {
   // ---------------------------------------------------------------------------
   // Stato pubblico
 
-  get id() { return this.config.id; }
-
   get isConnected() {
     return !['offline', 'connecting'].includes(this.state) && !!this.transport;
   }
 
-  get isPrinting() {
-    return ['printing', 'pausing', 'paused'].includes(this.state);
-  }
-
-  snapshot() {
+  get capabilities() {
+    const virtual = (this.port || this.config.port) === VIRTUAL_PORT;
     return {
-      id: this.config.id,
-      config: this.config,
-      state: this.state,
-      error: this.error,
-      port: this.port,
-      baudrate: this.baudrate,
-      firmware: this.firmware,
-      temps: this.temps,
-      position: this.position,
-      fanSpeed: this.fanSpeed,
-      feedRate: this.feedRate,
-      flowRate: this.flowRate,
-      job: this._jobInfo(),
-      lastJob: this.lastJob,
+      link: 'serial',
+      temps: true, jog: true, home: true, extrude: true, motorsOff: true,
+      fan: true, feedRate: true, flowRate: true, emergency: true,
+      terminal: 'full', scripts: true, preview: true, webcam: 'custom',
+      firmware: virtual ? null : 'marlin',
+      files: ['.gcode'],
     };
   }
 
-  getTempHistory() { return this.tempHistory; }
-  getLog() { return this.log; }
-
-  updateConfig(config) {
-    this.config = config;
-    const n = config.extruders || 1;
-    for (let i = 0; i < n; i++) {
-      if (!this.temps.tools['T' + i]) this.temps.tools['T' + i] = { actual: null, target: null };
-    }
-    for (const k of Object.keys(this.temps.tools)) {
-      if (parseInt(k.slice(1), 10) >= n) delete this.temps.tools[k];
-    }
-    this._changed();
+  _snapshotExtra() {
+    return { port: this.port, baudrate: this.baudrate };
   }
 
   // ---------------------------------------------------------------------------
@@ -170,11 +132,17 @@ class Printer extends EventEmitter {
     this.error = null;
     this.firmware = null;
     this.position = null;
-    for (const t of Object.values(this.temps.tools)) { t.actual = null; t.target = null; }
-    this.temps.bed = { actual: null, target: null };
-    this.temps.chamber = null;
+    this._clearTemps();
     this._setState('offline');
     this._log('info', 'Disconnessa.');
+  }
+
+  /** Libera la porta seriale (per esempio per aggiornare il firmware) e dice se era connessa. */
+  async releasePort() {
+    if (this.isPrinting) throw new Error('Aspetta la fine della stampa.');
+    const wasConnected = this.state !== 'offline' && this.state !== 'error';
+    if (wasConnected || this.transport) await this.disconnect();
+    return wasConnected;
   }
 
   _tryConnect(port, baud, probing, token) {
@@ -281,13 +249,6 @@ class Printer extends EventEmitter {
     this._fail('Connessione persa: la stampante è stata scollegata o spenta.');
   }
 
-  _fail(message) {
-    this.error = message;
-    this._setState('error');
-    this._log('error', message);
-    this.emit('notify', { level: 'error', title: this.config.name, message });
-  }
-
   _resetComm() {
     this.lineNumber = 0;
     this.history = new Map();
@@ -301,7 +262,7 @@ class Printer extends EventEmitter {
     this.kicks = 0;
     this.lastTempPoll = 0;
     this.autoreport = false;
-    this.capabilities = {};
+    this.fwCaps = {};
     this._handshake = null;
   }
 
@@ -382,8 +343,10 @@ class Printer extends EventEmitter {
     if (fw) {
       this.firmware = {
         name: fw.FIRMWARE_NAME || null,
+        version: firmwareVersion(fw.FIRMWARE_NAME),
         machine: fw.MACHINE_TYPE || null,
         extruders: fw.EXTRUDER_COUNT ? parseInt(fw.EXTRUDER_COUNT, 10) : null,
+        sourceUrl: fw.SOURCE_CODE_URL || null,
       };
       this._log('recv', line);
       this._changed();
@@ -392,7 +355,7 @@ class Printer extends EventEmitter {
 
     const cap = parseCapability(line);
     if (cap) {
-      this.capabilities[cap.name] = cap.enabled;
+      this.fwCaps[cap.name] = cap.enabled;
       this._log('recv', line, true);
       return;
     }
@@ -455,35 +418,10 @@ class Printer extends EventEmitter {
 
   _afterFirmwareInfo() {
     if (this.autoreport) return;
-    if (this.capabilities.AUTOREPORT_TEMP) {
+    if (this.fwCaps.AUTOREPORT_TEMP) {
       this.autoreport = true;
       this._enqueue(['M155 S2']);
     }
-  }
-
-  _applyTemps(t) {
-    for (const [k, v] of Object.entries(t.tools)) {
-      if (!this.temps.tools[k]) this.temps.tools[k] = { actual: null, target: null };
-      this.temps.tools[k].actual = v.actual;
-      if (v.target !== null) this.temps.tools[k].target = v.target;
-    }
-    if (t.bed) {
-      this.temps.bed = { actual: t.bed.actual, target: t.bed.target !== null ? t.bed.target : (this.temps.bed && this.temps.bed.target) };
-    }
-    if (t.chamber) this.temps.chamber = { actual: t.chamber.actual, target: t.chamber.target };
-
-    const now = Date.now();
-    const last = this.tempHistory[this.tempHistory.length - 1];
-    if (!last || now - last.t >= 1000) {
-      const sample = { t: now };
-      for (const [k, v] of Object.entries(this.temps.tools)) sample[k] = [v.actual, v.target];
-      if (this.temps.bed) sample.B = [this.temps.bed.actual, this.temps.bed.target];
-      if (this.temps.chamber) sample.C = [this.temps.chamber.actual, this.temps.chamber.target];
-      this.tempHistory.push(sample);
-      while (this.tempHistory.length && now - this.tempHistory[0].t > TEMP_HISTORY_MS) this.tempHistory.shift();
-      this.emit('temp', sample);
-    }
-    this._changed();
   }
 
   // ---------------------------------------------------------------------------
@@ -909,65 +847,74 @@ class Printer extends EventEmitter {
     const info = this._jobInfo();
     job.reader.close();
     this.job = null;
-    this.lastJob = {
-      file: job.name,
-      result,
-      reason: reason || null,
-      finishedAt: Date.now(),
-      duration: info.elapsed,
-      progress: result === 'done' ? 1 : info.progress,
-    };
-    if (result === 'done') {
-      this._setState('operational');
-      this._log('info', `Stampa completata: ${job.name}`);
-      this.emit('notify', { level: 'success', title: this.config.name, message: `Stampa completata: ${job.name}` });
-    } else if (result === 'cancelled') {
-      this._log('info', `Stampa annullata: ${job.name}`);
-      this.emit('notify', { level: 'info', title: this.config.name, message: `Stampa annullata: ${job.name}` });
-    } else {
-      this._log('error', `Stampa fallita: ${job.name}${reason ? ' — ' + reason : ''}`);
-      this.emit('notify', { level: 'error', title: this.config.name, message: `Stampa interrotta: ${job.name}${reason ? ' (' + reason + ')' : ''}` });
-    }
-    this.emit('job-ended', { ...this.lastJob, printerId: this.id, printerName: this.config.name, startedAt: job.startedAt });
-    this._changed();
+    if (result === 'done') this._setState('operational');
+    this._recordJobEnd({ file: job.name, result, reason, duration: info.elapsed, progress: info.progress, startedAt: job.startedAt });
   }
 
   // ---------------------------------------------------------------------------
   // Helper
 
-  _setState(state) {
-    if (this.state === state) return;
-    this.state = state;
-    this._changed(true);
+  // ---------------------------------------------------------------------------
+  // Firmware
+
+  async firmwareInfo(refresh) {
+    const fw = this.firmware;
+    const isMarlin = !!(fw && /marlin/i.test(fw.name || ''));
+    const latest = isMarlin ? await latestRelease('MarlinFirmware/Marlin', refresh) : null;
+    const port = this.port || this.config.port || null;
+    return {
+      kind: 'marlin',
+      current: fw,
+      latest,
+      updateAvailable: !!(latest && fw && fw.version && compareVersions(latest.version, fw.version) > 0),
+      port,
+      canInstall: !this.isPrinting && !!port && port !== VIRTUAL_PORT,
+      drives: await listRemovableDrives(),
+    };
   }
 
-  _changed(immediate) {
-    if (immediate) {
-      clearTimeout(this._updateTimer);
-      this._updateTimer = null;
-      this.emit('update');
-      return;
+  /** Scrive un firmware .hex sulla scheda (schede a 8 bit con bootloader) e la verifica. */
+  async flashHex(hexText) {
+    const port = this.port || this.config.port;
+    if (!port || port === VIRTUAL_PORT) throw new Error('Imposta prima la porta USB della stampante.');
+    this._requireNoTask();
+    parseIntelHex(hexText);
+    const wasConnected = await this.releasePort();
+    this._setTask({ kind: 'firmware', status: 'running', progress: 0, message: 'Preparazione...' });
+    this._log('info', `Aggiornamento del firmware sulla porta ${port}...`);
+    try {
+      const result = await flashHex({
+        path: port,
+        hex: hexText,
+        openPort: this.openSerial || openSerial,
+        onProgress: (p) => this._setTask({ progress: p.progress, message: p.message }),
+      });
+      const msg = `Firmware scritto e verificato su ${result.device}.`;
+      this._setTask({ status: 'done', progress: 1, message: msg });
+      this._log('info', msg);
+      if (wasConnected) setTimeout(() => { if (this.state === 'offline') this.connect().catch(() => {}); }, 4000);
+      return result;
+    } catch (err) {
+      this._setTask({ status: 'error', message: err.message });
+      this._log('error', 'Aggiornamento del firmware non riuscito: ' + err.message);
+      throw err;
     }
-    if (this._updateTimer) return;
-    this._updateTimer = setTimeout(() => {
-      this._updateTimer = null;
-      this.emit('update');
-    }, 250);
   }
 
-  _log(type, text, quiet = false) {
-    const entry = { t: Date.now(), type, text, q: quiet ? 1 : 0 };
-    this.log.push(entry);
-    if (this.log.length > LOG_SIZE) this.log.splice(0, this.log.length - LOG_SIZE);
-    this.emit('log', entry);
+  async copyFirmwareToDrive(drive, srcPath, naming) {
+    this._requireNoTask();
+    const r = await copyFirmwareToDrive(drive, srcPath, naming);
+    const msg = `Firmware copiato su ${r.drive} come ${r.name}. Espelli la scheda, inseriscila nella stampante spenta e accendila: l'aggiornamento parte da solo e dura circa un minuto.`;
+    this._setTask({ kind: 'firmware', status: 'done', progress: 1, message: msg });
+    this._log('info', msg);
+    return r;
   }
 
   async destroy() {
     this._connectToken++;
-    clearTimeout(this._updateTimer);
     if (this.job) this._endJob('failed', 'Stampante rimossa');
     await this._closeTransport();
-    this.removeAllListeners();
+    await super.destroy();
   }
 }
 
@@ -994,10 +941,21 @@ function estimateRemaining(job, elapsed, progress) {
   return linear === null ? null : Math.round(linear);
 }
 
-function emptyTemps(extruders) {
-  const tools = {};
-  for (let i = 0; i < extruders; i++) tools['T' + i] = { actual: null, target: null };
-  return { tools, bed: { actual: null, target: null }, chamber: null };
+function openSerial(path, baudRate) {
+  const { SerialPort } = require('serialport');
+  return new Promise((resolve, reject) => {
+    const port = new SerialPort({ path, baudRate, autoOpen: false });
+    port.open((err) => {
+      if (err) return reject(new Error(`Impossibile aprire ${path}: ${err.message}. Chiudi gli altri programmi che usano la stampante.`));
+      resolve(port);
+    });
+  });
+}
+
+/** "Marlin 2.1.2.1 (Jul 18 2023)" -> "2.1.2.1" */
+function firmwareVersion(name) {
+  const m = /(\d+\.\d+(?:\.\d+){0,2})/.exec(String(name || ''));
+  return m ? m[1] : null;
 }
 
 function scriptLines(text) {
@@ -1014,4 +972,4 @@ function round3(v) {
   return Math.round(v * 1000) / 1000;
 }
 
-module.exports = { Printer, DEFAULT_CANCEL_SCRIPT, BAUDRATES, estimateRemaining };
+module.exports = { MarlinPrinter, DEFAULT_CANCEL_SCRIPT, BAUDRATES, estimateRemaining, firmwareVersion };

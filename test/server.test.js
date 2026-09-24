@@ -10,7 +10,7 @@ const WebSocket = require('ws');
 const { startServer } = require('../src/server');
 
 function tmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'polipo-srv-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'sonoprint-srv-'));
 }
 
 function freePort() {
@@ -45,10 +45,10 @@ test('accesso locale con token e protezione dell\'host', async () => {
   const base = `http://127.0.0.1:${srv.port}`;
   try {
     assert.strictEqual((await call(`${base}/api/printers`)).status, 401);
-    assert.strictEqual((await call(`${base}/api/printers`, { headers: { 'X-Polipo-Token': srv.token } })).status, 200);
+    assert.strictEqual((await call(`${base}/api/printers`, { headers: { 'X-SonoPrint-Token': srv.token } })).status, 200);
     // la chiave del telefono non funziona finché l'accesso remoto è spento
     const key = srv.manager.settings.remote.key;
-    const r = await call(`${base}/api/printers`, { headers: { 'X-Polipo-Key': key } });
+    const r = await call(`${base}/api/printers`, { headers: { 'X-SonoPrint-Key': key } });
     assert.strictEqual(r.status, 401);
     assert.match(r.data.error, /disattivato/);
     // DNS rebinding: pagina e API rifiutate con un Host diverso da localhost
@@ -57,7 +57,7 @@ test('accesso locale con token e protezione dell\'host', async () => {
     });
     assert.strictEqual(page.statusCode, 403);
     // le impostazioni non contengono mai la chiave
-    const s = await call(`${base}/api/settings`, { headers: { 'X-Polipo-Token': srv.token } });
+    const s = await call(`${base}/api/settings`, { headers: { 'X-SonoPrint-Token': srv.token } });
     assert.deepStrictEqual(s.data.remote, { enabled: false });
     assert.ok(!JSON.stringify(s.data).includes(key));
   } finally {
@@ -68,19 +68,19 @@ test('accesso locale con token e protezione dell\'host', async () => {
 test('accesso dal telefono con la chiave', async () => {
   const srv = await startServer({ dataDir: tmpDir(), port: 0 });
   const base = `http://127.0.0.1:${srv.port}`;
-  const T = { 'X-Polipo-Token': srv.token };
+  const T = { 'X-SonoPrint-Token': srv.token };
   try {
-    const r1 = await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { remote: { enabled: true } } });
+    const r1 = await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { developer: true, remote: { enabled: true } } });
     assert.strictEqual(r1.status, 200);
     assert.deepStrictEqual(r1.data.remote, { enabled: true });
     await sleep(900); // il server si riapre su tutte le interfacce
 
     const pairing = await call(`${base}/api/remote`, { headers: T });
     assert.strictEqual(pairing.status, 200);
-    assert.match(pairing.data.pairingUrl, /^polipo:\/\/pair\?/);
+    assert.match(pairing.data.pairingUrl, /^sonoprint:\/\/pair\?/);
     assert.match(pairing.data.qrSvg, /^<svg/);
     const key = pairing.data.key;
-    const K = { 'X-Polipo-Key': key };
+    const K = { 'X-SonoPrint-Key': key };
 
     assert.strictEqual((await call(`${base}/api/printers`, { headers: K })).status, 200);
     // operazioni riservate al PC
@@ -92,7 +92,7 @@ test('accesso dal telefono con la chiave', async () => {
     assert.strictEqual(srv.manager.settings.notifications, false);
 
     // CORS (app del telefono provata nel browser)
-    const pre = await fetch(`${base}/api/printers`, { method: 'OPTIONS', headers: { Origin: 'http://localhost:8081', 'Access-Control-Request-Headers': 'x-polipo-key' } });
+    const pre = await fetch(`${base}/api/printers`, { method: 'OPTIONS', headers: { Origin: 'http://localhost:8081', 'Access-Control-Request-Headers': 'x-sonoprint-key' } });
     assert.strictEqual(pre.status, 204);
     assert.strictEqual(pre.headers.get('access-control-allow-origin'), 'http://localhost:8081');
 
@@ -110,7 +110,7 @@ test('accesso dal telefono con la chiave', async () => {
     if (ip) {
       const lan = `http://${ip}:${srv.port}`;
       assert.strictEqual((await call(`${lan}/api/printers`, { headers: K })).status, 200);
-      assert.strictEqual((await call(`${lan}/api/printers`, { headers: { 'X-Polipo-Key': 'sbagliata' } })).status, 401);
+      assert.strictEqual((await call(`${lan}/api/printers`, { headers: { 'X-SonoPrint-Key': 'sbagliata' } })).status, 401);
       assert.strictEqual((await call(`${lan}/api/printers`, { headers: T })).status, 401);
       assert.strictEqual((await call(`${lan}/`)).status, 403);
     }
@@ -137,10 +137,10 @@ test('accesso remoto acceso e spento più volte di fila: nessun server orfano', 
   const ip = lanIp();
   const srv = await startServer({ dataDir: tmpDir(), port: 0 });
   const base = `http://127.0.0.1:${srv.port}`;
-  const T = { 'X-Polipo-Token': srv.token };
+  const T = { 'X-SonoPrint-Token': srv.token };
   try {
     for (const enabled of [true, false, true, false, true, false]) {
-      const r = await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { remote: { enabled } } });
+      const r = await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { developer: true, remote: { enabled } } });
       assert.strictEqual(r.status, 200);
     }
     await sleep(3500); // attende che la coda dei cambi sia finita
@@ -148,7 +148,7 @@ test('accesso remoto acceso e spento più volte di fila: nessun server orfano', 
     assert.strictEqual((await call(`${base}/api/printers`, { headers: T })).status, 200);
     if (ip) assert.strictEqual(await canConnect(ip, srv.port), false, 'dalla rete non deve rispondere nessuno');
 
-    await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { remote: { enabled: true } } });
+    await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { developer: true, remote: { enabled: true } } });
     await sleep(900);
     if (ip) assert.strictEqual(await canConnect(ip, srv.port), true);
     assert.strictEqual((await call(`${base}/api/printers`, { headers: T })).status, 200);
@@ -160,7 +160,7 @@ test('accesso remoto acceso e spento più volte di fila: nessun server orfano', 
 test('cambio della porta dalle impostazioni', async () => {
   const srv = await startServer({ dataDir: tmpDir(), port: 0 });
   const oldPort = srv.port;
-  const T = { 'X-Polipo-Token': srv.token };
+  const T = { 'X-SonoPrint-Token': srv.token };
   const urls = [];
   srv.events.on('url-changed', (u) => urls.push(u));
   try {

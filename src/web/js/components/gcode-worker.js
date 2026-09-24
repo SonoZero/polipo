@@ -35,7 +35,7 @@ self.onmessage = async (ev) => {
     const result = parser.finish();
     const transfer = [];
     for (const l of result.layers) transfer.push(l.seg.buffer, l.type.buffer, l.off.buffer);
-    self.postMessage({ type: 'done', ...result }, transfer);
+    self.postMessage({ type: 'done', ...result, size: offset }, transfer);
   } catch (err) {
     self.postMessage({ type: 'error', message: err.message || String(err) });
   }
