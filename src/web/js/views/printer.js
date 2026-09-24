@@ -320,17 +320,35 @@ export function mountPrinter(container, id, initialTab) {
   // ---------------------------------------------------------------------------
   // schede
 
-  const tabsEl = h('div', { class: 'tabs', role: 'tablist' });
-  const tabBody = h('div');
+  const tabsEl = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Sezioni della stampante' });
+  const tabBody = h('div', { role: 'tabpanel' });
+  const goTab = (t) => { location.hash = `#/printer/${id}/${t}`; };
   function renderTabs() {
+    const hadFocus = tabsEl.contains(document.activeElement);
     clear(tabsEl);
     for (const t of tabs) {
+      const active = t.id === tab;
       tabsEl.appendChild(h('button', {
-        class: 'tab' + (t.id === tab ? ' active' : ''), role: 'tab', 'aria-selected': t.id === tab ? 'true' : 'false',
-        onclick: () => { location.hash = `#/printer/${id}/${t.id}`; },
+        class: 'tab' + (active ? ' active' : ''), role: 'tab', id: `tab-${t.id}`,
+        'aria-selected': active ? 'true' : 'false', tabindex: active ? '0' : '-1',
+        onclick: () => goTab(t.id),
       }, icon(t.icon, 'sm'), t.label));
     }
+    tabBody.setAttribute('aria-labelledby', `tab-${tab}`);
+    if (hadFocus) { const el = tabsEl.querySelector('.tab.active'); if (el) el.focus(); }
   }
+  // frecce, Home e Fine per cambiare scheda dalla tastiera
+  tabsEl.addEventListener('keydown', (e) => {
+    const i = tabs.findIndex((t) => t.id === tab);
+    let next = null;
+    if (e.key === 'ArrowRight') next = (i + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    goTab(tabs[next].id);
+  });
 
   function setTab(t) {
     if (!tabs.some((x) => x.id === t)) t = tabs[0].id;

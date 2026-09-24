@@ -102,6 +102,7 @@ async function startFakeMoonraker(opts = {}) {
     if (url.pathname === '/server/info') return json(res, 200, { result: { klippy_connected: true, klippy_state: state.klippy, moonraker_version: 'v0.9.3' } });
     if (url.pathname === '/printer/info') return json(res, 200, { result: { state: state.klippy, hostname: 'voron', software_version: 'v0.12.0-300' } });
     if (url.pathname === '/server/files/upload' && req.method === 'POST') {
+      if (opts.onUpload) return opts.onUpload(req, res);
       const mp = parseMultipart(await readBody(req), req.headers['content-type']);
       state.files.set(mp.file.name, mp.file.size);
       return json(res, 201, { result: { item: { path: mp.file.name, root: mp.fields.root } } });

@@ -90,7 +90,9 @@ class PrinterManager extends EventEmitter {
     this.order = [];
 
     this.files = new FileStore(dataDir);
-    this.files.isInUse = (name) => [...this.printers.values()].some((p) => p.job && p.job.name === name);
+    // in uso: in stampa da una stampante USB oppure in invio a una stampante in rete
+    this.files.isInUse = (name) => [...this.printers.values()].some((p) => (p.job && p.job.name === name)
+      || (p.task && p.task.kind === 'upload' && p.task.status === 'running' && p.task.file === name));
     this.files.on('changed', () => this.emit('files-changed'));
 
     (saved.printers || []).forEach((cfg, i) => this._createPrinter(sanitizeConfig(cfg, i)));

@@ -177,7 +177,7 @@ function printerForm({ type, preset = {}, existing = null, onDone }) {
   });
   const secret = (key, placeholder) => {
     const input = h('input', {
-      class: 'input', type: 'password', autocomplete: 'off', spellcheck: false,
+      class: 'input', type: 'password', autocomplete: 'off', spellcheck: false, 'data-key': key,
       placeholder: secrets[key] ? 'Salvato: lascia vuoto per non cambiarlo' : placeholder,
       oninput: (e) => { newSecrets[key] = e.target.value.trim(); },
     });
@@ -187,7 +187,32 @@ function printerForm({ type, preset = {}, existing = null, onDone }) {
     } }, icon('eye'));
     return { input, el: h('div', { class: 'input-group' }, input, eye) };
   };
-  const field = (label, control, hint) => h('div', { class: 'field' }, h('label', null, label), control, hint ? h('div', { class: 'hint' }, hint) : null);
+  let uid = 0;
+  const field = (label, control, hint) => {
+    const input = control.matches('input, select, textarea') ? control : control.querySelector('input, select, textarea');
+    if (input && !input.id) input.id = `pf-${++uid}`;
+    return h('div', { class: 'field' }, h('label', { for: input ? input.id : null }, label), control, hint ? h('div', { class: 'hint' }, hint) : null);
+  };
+  // errore sotto il campo, come chiedono le linee guida sui moduli
+  const fieldError = (key, message) => {
+    const input = el.querySelector(`[data-key="${key}"]`);
+    if (!input) return toast('warn', message);
+    const box = input.closest('.field');
+    let err = box.querySelector('.field-error');
+    if (!err) {
+      err = h('div', { class: 'field-error', id: input.id + '-err', role: 'alert' });
+      box.append(err);
+    }
+    err.textContent = message;
+    input.setAttribute('aria-invalid', 'true');
+    input.setAttribute('aria-describedby', err.id);
+    input.focus();
+    input.addEventListener('input', () => {
+      err.remove();
+      input.removeAttribute('aria-invalid');
+      input.removeAttribute('aria-describedby');
+    }, { once: true });
+  };
 
   const colorPick = h('div', { class: 'color-pick', role: 'radiogroup', 'aria-label': 'Colore' });
   const renderColors = () => {
@@ -224,7 +249,7 @@ function printerForm({ type, preset = {}, existing = null, onDone }) {
   const common = h('div', { class: 'stack' },
     typeLine,
     h('div', { class: 'grid-2' },
-      field('Nome', text(cfg, 'name', { maxlength: '60' })),
+      field('Nome', text(cfg, 'name', { maxlength: '60', 'data-key': 'name' })),
       field('Modello', h('div', null, modelInput, h('datalist', { id: listId }, modelList.map((m) => h('option', { value: m })))))),
     field('Colore', colorPick));
 
@@ -274,7 +299,7 @@ function printerForm({ type, preset = {}, existing = null, onDone }) {
         h('b', null, 'Sulla stampante: '), 'Impostazioni > WLAN (o Rete). Attiva ', h('b', null, 'Modalità solo LAN'), ' e ', h('b', null, 'Modalità sviluppatore'),
         ': senza quest\'ultima la stampante accetta solo la lettura dello stato. Nella stessa pagina trovi indirizzo IP e codice di accesso.')),
       h('div', { class: 'grid-2' },
-        field('Indirizzo IP', text(cfg.net, 'host', { placeholder: 'es. 192.168.1.40' })),
+        field('Indirizzo IP', text(cfg.net, 'host', { 'data-key': 'host', placeholder: 'es. 192.168.1.40' })),
         field('Codice di accesso LAN', code.el, 'Cambia quando si riattiva la modalità LAN.')),
       field('Numero di serie', text(cfg.net, 'serial', { placeholder: 'Facoltativo: SonoPrint lo legge dalla stampante' })),
       field('Quando avvii una stampa', h('div', { class: 'stack tight' },
@@ -285,7 +310,7 @@ function printerForm({ type, preset = {}, existing = null, onDone }) {
     const key = secret('apiKey', 'Solo se Moonraker la richiede');
     specific = h('div', { class: 'stack' },
       h('div', { class: 'grid-2' },
-        field('Indirizzo IP o nome', text(cfg.net, 'host', { placeholder: 'es. 192.168.1.50 oppure voron.local' })),
+        field('Indirizzo IP o nome', text(cfg.net, 'host', { 'data-key': 'host', placeholder: 'es. 192.168.1.50 oppure voron.local' })),
         field('Porta di Moonraker', num(cfg.net, 'port', { placeholder: '7125', min: 1, max: 65535 }), 'Di solito 7125. Se non risponde prova 80.')),
       field('Chiave API', key.el, 'Serve solo se in Moonraker è attiva l\'autenticazione: la trovi in Mainsail o Fluidd.'));
   } else if (type === 'prusalink') {
@@ -293,7 +318,7 @@ function printerForm({ type, preset = {}, existing = null, onDone }) {
     specific = h('div', { class: 'stack' },
       h('div', { class: 'alert info' }, icon('info', 'sm'), h('div', null,
         'Sullo schermo della stampante apri ', h('b', null, 'Impostazioni > Rete > PrusaLink'), ': lì trovi indirizzo, nome utente e password.')),
-      field('Indirizzo IP', text(cfg.net, 'host', { placeholder: 'es. 192.168.1.60' })),
+      field('Indirizzo IP', text(cfg.net, 'host', { 'data-key': 'host', placeholder: 'es. 192.168.1.60' })),
       h('div', { class: 'grid-2' },
         field('Nome utente', text(cfg.net, 'username', { placeholder: 'maker' })),
         field('Password', pass.el)),
@@ -317,7 +342,7 @@ function printerForm({ type, preset = {}, existing = null, onDone }) {
       }
     } }, icon('key'), 'Chiedi l\'accesso');
     specific = h('div', { class: 'stack' },
-      field('Indirizzo di OctoPrint', text(cfg.net, 'host', { placeholder: 'es. 192.168.1.70 oppure octopi.local:5000' })),
+      field('Indirizzo di OctoPrint', text(cfg.net, 'host', { 'data-key': 'host', placeholder: 'es. 192.168.1.70 oppure octopi.local:5000' })),
       field('Chiave API', h('div', { class: 'input-group' }, h('div', { class: 'grow' }, key.el), askBtn),
         'Premi "Chiedi l\'accesso" e conferma nella pagina di OctoPrint, oppure crea una chiave in Impostazioni > Application Keys.'));
   }
@@ -326,9 +351,9 @@ function printerForm({ type, preset = {}, existing = null, onDone }) {
     check('Connetti all\'avvio di SonoPrint', cfg.autoConnect, (v) => { cfg.autoConnect = v; }));
 
   async function save(button, connect) {
-    if (!String(cfg.name).trim()) return toast('warn', 'Scrivi un nome per la stampante');
-    if (type !== 'usb' && !String(cfg.net.host || '').trim()) return toast('warn', 'Scrivi l\'indirizzo della stampante');
-    if (type === 'bambu' && !secrets.accessCode && !newSecrets.accessCode) return toast('warn', 'Scrivi il codice di accesso LAN della stampante');
+    if (!String(cfg.name).trim()) return fieldError('name', 'Scrivi un nome per la stampante.');
+    if (type !== 'usb' && !String(cfg.net.host || '').trim()) return fieldError('host', 'Scrivi l\'indirizzo della stampante.');
+    if (type === 'bambu' && !secrets.accessCode && !newSecrets.accessCode) return fieldError('accessCode', 'Scrivi il codice di accesso LAN della stampante.');
     const payload = { type, name: cfg.name, model: cfg.model, color: cfg.color, autoConnect: cfg.autoConnect };
     if (type === 'usb') {
       Object.assign(payload, {

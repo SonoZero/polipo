@@ -45,6 +45,7 @@
     "files": [
       "src/**/*",
       "build/icon.png",
+      "THIRD-PARTY-NOTICES.md",
       "package.json"
     ],
     "publish": [

@@ -167,13 +167,13 @@ async function startServer(options = {}) {
   route('POST', /^\/api\/discovery$/, async () => {
     const found = await discoverPrinters();
     return found.map((r) => ({ ...r, addedAs: alreadyAdded(r) }));
-  });
+  }, { localOnly: true });
   route('POST', /^\/api\/discovery\/probe$/, async (req) => {
     const host = String((await readJsonBody(req)).host || '').trim().replace(/^[a-z]+:\/\//i, '').replace(/[:/].*$/, '');
     if (!/^[\w.-]+$/.test(host)) throw badRequest('Indirizzo non valido.');
     const found = await probeHost(host);
     return found.map((r) => ({ ...r, addedAs: alreadyAdded(r) }));
-  });
+  }, { localOnly: true });
   route('POST', /^\/api\/octoprint\/appkey$/, async (req) => {
     const body = await readJsonBody(req);
     const key = await requestOctoPrintKey(String(body.host || ''), parseInt(body.port, 10) || null);
@@ -646,6 +646,7 @@ async function startServer(options = {}) {
   return {
     get url() { return localUrl(); },
     get port() { return current.port; },
+    get host() { return current.host; },
     token,
     manager,
     events,

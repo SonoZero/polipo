@@ -28,10 +28,10 @@
 | Tipo | Cosa serve |
 | --- | --- |
 | **USB** (Marlin, Prusa, RepRapFirmware e derivati) | Cavo USB. Le stampe partono dal PC: se chiudi SonoPrint o il PC va in sospensione, la stampa si ferma. |
-| **Bambu Lab** (X1, P1, A1) | Sulla stampante attiva la **Modalità solo LAN** e la **Modalità sviluppatore**; servono indirizzo IP e codice di accesso LAN. |
-| **Klipper** (Moonraker, come Mainsail e Fluidd) | Indirizzo della stampante; la chiave API solo se Moonraker la richiede. |
-| **PrusaLink** (MK4, MK3.9, Core One, MINI+, XL) | Indirizzo, nome utente e password da *Impostazioni > Rete > PrusaLink* sulla stampante. PrusaLink non permette di muovere gli assi né di impostare le temperature. |
-| **OctoPrint** | Indirizzo e chiave API: premi **Chiedi l'accesso** e conferma nella pagina di OctoPrint. |
+| **Bambu Lab** (X1, P1, A1, H2) | Sulla stampante, in *Impostazioni > WLAN*, attiva la **Modalità solo LAN** e la **Modalità sviluppatore** (senza, SonoPrint può solo leggere lo stato). Servono indirizzo IP e codice di accesso LAN (8 cifre, nella stessa pagina); il numero di serie SonoPrint lo legge da solo. |
+| **Klipper** (Moonraker, come Mainsail e Fluidd) | Indirizzo della stampante, porta 7125 (se non risponde prova 80); la chiave API solo se Moonraker la richiede. |
+| **PrusaLink** (MK4, MK3.9, Core One, MINI+, XL) | Indirizzo, nome utente (di solito `maker`) e password da *Impostazioni > Rete > PrusaLink* sulla stampante; con i firmware vecchi la chiave API. PrusaLink non permette di muovere gli assi né di impostare le temperature. |
+| **OctoPrint** | Indirizzo e chiave API: premi **Chiedi l'accesso** e conferma nella pagina di OctoPrint, oppure crea una chiave in *Impostazioni > Application Keys*. |
 
 Le stampanti in rete continuano a stampare da sole anche se chiudi SonoPrint.
 
@@ -51,16 +51,19 @@ Se una stampante USB non si connette:
 Dalla pagina di ogni stampante, scheda **Firmware**:
 
 - **USB, schede a 8 bit** (ATmega2560, 1284P, 328P con bootloader): SonoPrint scrive il file `.hex` via USB e rilegge ogni pagina per verificarla.
-- **USB, schede a 32 bit**: copia il file `.bin` sulla scheda SD con il nome giusto; al riavvio la stampante lo installa.
-- **Bambu Lab**: aggiornamento offline tramite scheda microSD nella stampante (le P1 devono avere almeno il firmware 01.07, le A1 almeno il 01.04).
-- **Klipper**: update manager di Moonraker (Klipper, Moonraker, interfacce e sistema).
-- **PrusaLink** e **OctoPrint**: controllo della versione e aggiornamento del software di OctoPrint.
+- **USB, schede a 32 bit** (Creality 4.2.x, BTT SKR, MKS): SonoPrint copia il file `.bin` sulla scheda SD inserita nel PC con il nome giusto (sempre diverso per Creality, `firmware.bin` per BTT e MKS); rimetti la scheda nella stampante e riaccendila.
+- **Bambu Lab**: aggiornamento offline. SonoPrint copia il pacchetto ufficiale sulla microSD della stampante, poi lo avvii dallo schermo in *Impostazioni > Firmware* (le P1 devono avere almeno il firmware 01.07, le A1 almeno il 01.04).
+- **Klipper**: update manager di Moonraker (Klipper, Moonraker, Mainsail o Fluidd, pacchetti del sistema), un componente alla volta o tutto insieme.
+- **OctoPrint**: aggiornamento di OctoPrint e dei plugin (serve la chiave di un amministratore).
+- **PrusaLink**: SonoPrint mostra la versione installata e l'ultima pubblicata da Prusa; l'aggiornamento si fa con la chiavetta USB.
 
 Per Marlin e Prusa SonoPrint confronta la versione installata con l'ultima pubblicata su GitHub.
 
+> Prima di scrivere un firmware su una stampante USB salva le sue impostazioni (comando `M503` nel terminale) e controlla che il file sia fatto per la tua scheda. SonoPrint non tocca il bootloader, quindi se qualcosa va storto si può riprovare, ma con un firmware sbagliato la stampante non funziona finché non rimetti quello giusto.
+
 ## Accesso dal telefono
 
-In **Impostazioni > Accesso dal telefono** SonoPrint si apre alla rete di casa e mostra un QR code da inquadrare con l'app per il telefono.
+L'accesso dal telefono è una funzione per sviluppatori ed è nascosta: in **Impostazioni > Informazioni** tocca **7 volte** il numero di versione per attivare la modalità sviluppatore. Compare la sezione **Accesso dal telefono**: SonoPrint si apre alla rete di casa e mostra un QR code da inquadrare con l'app per il telefono. Spegnendo la modalità sviluppatore si spegne anche l'accesso dal telefono.
 
 - L'accesso è protetto da una **chiave segreta** casuale contenuta nel QR code; si può rigenerare in qualsiasi momento (i telefoni abbinati andranno riabbinati).
 - Dalla rete si raggiungono solo le API per l'app: la pagina web di SonoPrint, la porta e le impostazioni di rete restano accessibili **solo dal PC**.
@@ -75,9 +78,16 @@ La versione installata (`SonoPrint-Setup-x.y.z.exe`) si aggiorna da sola dalle [
 - scarica la nuova versione in background e mostra **Riavvia e aggiorna** nella barra laterale;
 - se una stampa USB è in corso non interrompe nulla: l'aggiornamento si installa a fine stampa o alla chiusura dell'app.
 
-Chi ha installato Polipo riceve l'aggiornamento a SonoPrint come un normale aggiornamento; stampanti, file e cronologia vengono copiati alla prima apertura.
-
 La versione portable (`SonoPrint-Portable-x.y.z.exe`) non può sostituirsi da sola: avvisa quando esce una nuova versione e apre la pagina di download.
+
+### Arrivi da Polipo?
+
+SonoPrint è il nuovo nome di Polipo.
+
+- **Versione installata**: riceve SonoPrint come un normale aggiornamento. L'installer riconosce Polipo e lo sostituisce, senza lasciare due app.
+- **Versione portable**: scarica `SonoPrint-Portable` dalle Release.
+- **Dati**: al primo avvio SonoPrint copia stampanti, file e cronologia da `%APPDATA%\Polipo\data`. La cartella di Polipo resta dov'è: cancellala tu quando hai controllato che è tutto a posto.
+- **App per il telefono**: va abbinata di nuovo.
 
 ### Pubblicare una nuova versione
 
@@ -89,6 +99,22 @@ git push --follow-tags   # GitHub Actions compila e pubblica la Release
 Il workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) esegue i test, controlla che il tag corrisponda alla versione, compila installer e portable e li pubblica nella Release insieme a `latest.yml` (il file che le app leggono per sapere se c'è un aggiornamento). Perché gli aggiornamenti funzionino il repository deve essere **pubblico**.
 
 Se fai un **fork** e pubblichi le tue versioni, cambia `repository.url` e `build.publish` in [`package.json`](package.json) con il tuo repository, altrimenti le copie installate continueranno a cercare gli aggiornamenti qui.
+
+## Limiti noti
+
+- **Bambu Lab**: si stampa solo il primo piatto del 3MF; con l'AMS i filamenti usano gli slot in ordine (1, 2, 3, 4), senza scelta manuale; la telecamera funziona su P1 e A1 (le X1 e H2 usano RTSP, non supportato); delle H2D con due ugelli si vede solo il primo; niente riscaldamento della camera. I file `.gcode.3mf` si stampano solo sulle Bambu Lab.
+- **Klipper**: fino a due estrusori.
+- **PrusaLink**: niente temperature, movimenti né terminale (limite di PrusaLink).
+- **OctoPrint**: il terminale invia i comandi, le risposte si vedono in OctoPrint.
+- **Stampanti in rete**: il tipo di una stampante non si cambia; va rimossa e aggiunta di nuovo.
+- **Ricerca**: guarda solo la rete del PC (al massimo 254 indirizzi per scheda di rete); le stampanti in altre reti si aggiungono scrivendo l'indirizzo IP.
+- **Firmware USB**: solo schede AVR con bootloader (ATmega2560, 1280, 1284P, 644P, 328P); le schede senza bootloader richiedono un programmatore ISP; le schede a 32 bit si aggiornano con la scheda SD.
+
+## Sicurezza
+
+- Codici di accesso, password e chiavi API delle stampanti sono salvati in `%APPDATA%\SonoPrint\data\config.json`, come fa OctoPrint. Non vengono mai mandati all'interfaccia né al telefono.
+- Con le Bambu Lab la connessione è verificata con i certificati di Bambu Lab. I firmware vecchi usano un certificato non firmato: SonoPrint lo memorizza alla prima connessione e poi accetta solo quello. Chi fosse già nella tua rete in quel primo momento potrebbe intercettare il codice di accesso: fai la prima connessione da una rete di cui ti fidi.
+- Ricerca in rete, caricamento del firmware, schede SD, porta e accesso dal telefono si usano solo dal PC.
 
 ## Sviluppo
 
@@ -126,3 +152,7 @@ test/                     test automatici (node --test) con stampanti finte in t
 ```
 
 I dati (stampanti, file caricati, cronologia) sono in `%APPDATA%\SonoPrint\data`.
+
+## Crediti
+
+Icone [Phosphor](https://phosphoricons.com) (MIT), font [Geist](https://github.com/vercel/geist-font) (SIL OFL 1.1) e le librerie elencate in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), insieme alle fonti della documentazione dei protocolli delle stampanti.

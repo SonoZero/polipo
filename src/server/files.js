@@ -117,7 +117,7 @@ class FileStore extends EventEmitter {
 
   remove(name) {
     const safe = sanitizeName(name);
-    if (this.isInUse(safe)) throw new Error('Il file è in stampa su una stampante: annulla prima la stampa.');
+    if (this.isInUse(safe)) throw new Error('Il file è in stampa o in invio a una stampante: aspetta o annulla prima la stampa.');
     const p = path.join(this.dir, safe);
     if (!fs.existsSync(p)) throw new Error('File non trovato.');
     fs.unlinkSync(p);

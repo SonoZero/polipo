@@ -3,6 +3,7 @@
 import { h, icon } from './util.js';
 
 const modalRoot = () => document.getElementById('modal-root');
+const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /**
  * Apre una finestra modale. `render(close)` ritorna { body, footer? }.
@@ -10,16 +11,31 @@ const modalRoot = () => document.getElementById('modal-root');
  */
 export function openModal({ title, size = '', body, footer, onClose, dismissable = true }) {
   const backdrop = h('div', { class: 'modal-backdrop' });
+  const opener = document.activeElement;
   const close = () => {
     backdrop.remove();
     document.removeEventListener('keydown', onKey);
+    if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
     if (onClose) onClose();
   };
-  const onKey = (e) => { if (e.key === 'Escape' && dismissable) close(); };
-  const modal = h('div', { class: 'modal ' + size, role: 'dialog', 'aria-modal': 'true' },
+  const onKey = (e) => {
+    // con più finestre aperte risponde solo quella in primo piano
+    if (modalRoot().lastElementChild !== backdrop) return;
+    if (e.key === 'Escape' && dismissable) { e.stopPropagation(); close(); return; }
+    if (e.key !== 'Tab') return;
+    const items = [...modal.querySelectorAll(FOCUSABLE)].filter((el) => !el.disabled && el.offsetParent !== null);
+    if (!items.length) { e.preventDefault(); modal.focus(); return; }
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (!modal.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+    else if (e.shiftKey && (document.activeElement === first || document.activeElement === modal)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  const titleId = 'modal-title-' + Math.random().toString(36).slice(2, 8);
+  const modal = h('div', { class: 'modal ' + size, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId, tabindex: '-1' },
     h('div', { class: 'modal-head' },
-      h('h2', null, title),
-      h('button', { class: 'btn ghost icon-only sm', title: 'Chiudi', onclick: close }, icon('x')),
+      h('h2', { id: titleId }, title),
+      h('button', { class: 'btn ghost icon-only sm', title: 'Chiudi', 'aria-label': 'Chiudi', onclick: close }, icon('x')),
     ),
     h('div', { class: 'modal-body' }, typeof body === 'function' ? body(close) : body),
     footer ? h('div', { class: 'modal-foot' }, typeof footer === 'function' ? footer(close) : footer) : null,
@@ -29,7 +45,7 @@ export function openModal({ title, size = '', body, footer, onClose, dismissable
   document.addEventListener('keydown', onKey);
   modalRoot().appendChild(backdrop);
   const first = modal.querySelector('input, select, textarea');
-  if (first) setTimeout(() => first.focus(), 30);
+  setTimeout(() => (first || modal).focus(), 30);
   return close;
 }
 

@@ -95,7 +95,7 @@ function createWindow() {
     height: 920,
     minWidth: 960,
     minHeight: 640,
-    backgroundColor: '#0e1014',
+    backgroundColor: '#0b0c0e',
     title: 'SonoPrint',
     icon: ICON,
     show: false,
