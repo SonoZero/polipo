@@ -1,7 +1,7 @@
 // Avvio dell'interfaccia: tema, barra laterale, navigazione tra le pagine.
 
 import { h, icon, clear, setText, STATE_LABELS, fmtPct, PRINTER_TYPES } from './util.js';
-import { store, on, connectSocket, printerList } from './api.js';
+import { store, on, connectSocket, printerList, logout } from './api.js';
 import { toast } from './ui.js';
 import { mountDashboard } from './views/dashboard.js';
 import { mountPrinter } from './views/printer.js';
@@ -64,6 +64,10 @@ function renderSidebar() {
   }
   sidebar.appendChild(list);
   sidebar.appendChild(h('div', { class: 'side-footer' },
+    store.access === 'lan'
+      ? h('div', { class: 'side-lan' }, icon('wifi', 'sm'), h('span', { class: 'grow' }, 'Collegato dalla rete'),
+        h('button', { class: 'btn sm ghost', onclick: () => logout() }, 'Esci'))
+      : null,
     updateBanner.el,
     h('button', { class: 'btn block', onclick: () => openAddPrinter() }, icon('plus'), 'Aggiungi stampante'),
     h('div', { class: 'made-by' }, 'made by ', h('b', null, 'sonozero'))));

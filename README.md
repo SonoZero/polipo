@@ -19,6 +19,7 @@
 - **Tempo rimanente e ora di fine**.
 - **Telecamere**: webcam USB, flussi MJPEG/snapshot di rete, telecamera integrata delle Bambu P1 e A1 e telecamere di Klipper.
 - **Cronologia** delle stampe con statistiche, **notifiche del sistema** a fine stampa, blocco della **sospensione** del computer durante le stampe USB.
+- **Accesso dalla rete** dal browser di telefono, tablet o altri computer, con password.
 - **Accesso dal telefono** con QR code e chiave segreta.
 - **Temi chiaro e scuro**, interfaccia che funziona anche senza internet.
 - **Stampante virtuale** che simula un firmware Marlin, per provare tutto senza stampante.
@@ -69,6 +70,17 @@ Dalla pagina di ogni stampante, scheda **Firmware** (oppure dai dettagli nel cen
 Per Marlin e Prusa SonoPrint confronta la versione installata con l'ultima pubblicata su GitHub.
 
 > Prima di scrivere un firmware su una stampante USB salva le sue impostazioni (comando `M503` nel terminale) e controlla che il file sia fatto per la tua scheda. SonoPrint non tocca il bootloader, quindi se qualcosa va storto si può riprovare, ma con un firmware sbagliato la stampante non funziona finché non rimetti quello giusto.
+
+## Accesso dalla rete
+
+Per usare SonoPrint dal browser di un altro dispositivo (telefono, tablet, un altro computer) collegato alla stessa rete:
+
+1. Sul computer apri **Impostazioni > Accesso dalla rete**, scegli una **password** (almeno 6 caratteri) e attiva **Apri SonoPrint agli altri dispositivi della rete**.
+2. Sotto compaiono gli indirizzi da aprire, per esempio `http://192.168.1.16:5723/`, e un QR code da inquadrare con la fotocamera del telefono.
+3. Su Windows premi **Consenti nel firewall** se SonoPrint lo propone: Windows chiede la conferma da amministratore e aggiunge la regola per le reti private. Se la tua rete di casa risulta "pubblica", in Windows impostala come privata.
+4. Dall'altro dispositivo apri l'indirizzo ed entra con la password: resti collegato per 30 giorni, oppure premi **Esci** in basso a sinistra.
+
+Dalla rete si usa SonoPrint come sul computer, tranne le cose delicate che restano solo sul computer: porta, accesso dalla rete, ricerca delle stampanti, firmware da file e installazione degli aggiornamenti. La password è salvata cifrata; cambiandola, chi era collegato deve rientrare. Spegnendo l'accesso dalla rete SonoPrint torna raggiungibile solo dal computer.
 
 ## Accesso dal telefono
 
@@ -153,7 +165,8 @@ Se fai un **fork** e pubblichi le tue versioni, cambia `repository.url` e `build
 
 - Codici di accesso, password e chiavi API delle stampanti sono salvati in `%APPDATA%\SonoPrint\data\config.json`, come fa OctoPrint. Non vengono mai mandati all'interfaccia né al telefono.
 - Con le Bambu Lab la connessione è verificata con i certificati di Bambu Lab. I firmware vecchi usano un certificato non firmato: SonoPrint lo memorizza alla prima connessione e poi accetta solo quello. Chi fosse già nella tua rete in quel primo momento potrebbe intercettare il codice di accesso: fai la prima connessione da una rete di cui ti fidi.
-- Ricerca in rete, caricamento del firmware, schede SD, porta e accesso dal telefono si usano solo dal computer.
+- Ricerca in rete, caricamento del firmware, schede SD, porta, accesso dalla rete e accesso dal telefono si gestiscono solo dal computer.
+- L'accesso dalla rete chiede una password (salvata come hash scrypt), limita i tentativi sbagliati e usa un cookie di sessione valido solo per l'indirizzo di SonoPrint: un sito esterno non può usarlo.
 
 ## Sviluppo
 

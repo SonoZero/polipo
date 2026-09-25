@@ -361,3 +361,103 @@ test('telecamera Bambu come flusso MJPEG', async () => {
     await fake.close();
   }
 });
+
+// --- accesso dai browser della rete, con password ------------------------------------------
+
+/** Richiesta come da un altro dispositivo: Host = indirizzo di rete del computer. */
+function asLan(port, host, method, reqPath, { headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = require('http').request({
+      host: '127.0.0.1', port, method, path: reqPath,
+      headers: { Host: host, ...headers, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    }, (res) => {
+      let text = '';
+      res.on('data', (c) => { text += c; });
+      res.on('end', () => {
+        let json = null;
+        try { json = JSON.parse(text); } catch (_) { json = null; }
+        resolve({ status: res.statusCode, headers: res.headers, text, json });
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+test('accesso dalla rete con password', async (t) => {
+  const ip = lanIp();
+  if (!ip) return t.skip('nessuna scheda di rete');
+  const srv = await startServer({ dataDir: tmpDir(), port: 0 });
+  const base = `http://127.0.0.1:${srv.port}`;
+  const T = { 'X-SonoPrint-Token': srv.token };
+  const host = `${ip}:${srv.port}`;
+  const lan = (method, p, o) => asLan(srv.port, host, method, p, o);
+  try {
+    // spento: dalla rete non si apre niente
+    assert.strictEqual((await lan('GET', '/')).status, 403);
+    // non si accende senza password, e la password deve essere lunga abbastanza
+    assert.strictEqual((await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { lan: { enabled: true } } })).status, 400);
+    assert.strictEqual((await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { lan: { password: 'corta' } } })).status, 400);
+    const on = await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { lan: { enabled: true, password: 'segreta123' } } });
+    assert.strictEqual(on.status, 200);
+    assert.deepStrictEqual(on.data.lan, { enabled: true, hasPassword: true });
+    assert.ok(!JSON.stringify(on.data).includes(srv.manager.settings.lan.hash), 'la password non esce mai');
+    await sleep(900);
+    assert.strictEqual(srv.host, '0.0.0.0');
+
+    // senza accesso: pagina della password, API rifiutate
+    const page = await lan('GET', '/');
+    assert.strictEqual(page.status, 200);
+    assert.match(page.text, /id="login-form"/);
+    const denied = await lan('GET', '/api/printers');
+    assert.strictEqual(denied.status, 401);
+    assert.strictEqual(denied.json.login, true);
+
+    assert.strictEqual((await lan('POST', '/api/login', { body: { password: 'sbagliata' } })).status, 401);
+    const ok = await lan('POST', '/api/login', { body: { password: 'segreta123' } });
+    assert.strictEqual(ok.status, 200);
+    const setCookie = ok.headers['set-cookie'][0];
+    assert.match(setCookie, /HttpOnly/);
+    assert.match(setCookie, /SameSite=Strict/);
+    const C = { Cookie: setCookie.split(';')[0] };
+
+    // dentro: API e interfaccia, ma senza il token del computer
+    assert.strictEqual((await lan('GET', '/api/printers', { headers: C })).status, 200);
+    const index = await lan('GET', '/', { headers: C });
+    assert.match(index.text, /id="app"/);
+    assert.match(index.text, /name="sonoprint-token" content=""/);
+    assert.ok(!index.text.includes(srv.token));
+    // le operazioni riservate al computer restano chiuse, e l'accesso dalla rete non si cambia da qui
+    assert.strictEqual((await lan('GET', '/api/remote', { headers: C })).status, 403);
+    assert.strictEqual((await lan('GET', '/api/lan', { headers: C })).status, 403);
+    await lan('PUT', '/api/settings', { headers: C, body: { lan: { enabled: false } } });
+    assert.strictEqual(srv.manager.settings.lan.enabled, true);
+
+    // un sito esterno (DNS rebinding) non può usare il cookie
+    assert.strictEqual((await asLan(srv.port, 'evil.example', 'GET', '/api/printers', { headers: C })).status, 401);
+    assert.strictEqual((await asLan(srv.port, 'evil.example', 'GET', '/')).status, 403);
+
+    // WebSocket dal browser della rete
+    const hello = await new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`, { headers: { Host: host, ...C }, origin: `http://${host}` });
+      ws.on('message', (d) => { resolve(JSON.parse(String(d))); ws.close(); });
+      ws.on('error', reject);
+    });
+    assert.strictEqual(hello.type, 'hello');
+    assert.strictEqual(hello.access, 'lan');
+
+    // password nuova: chi era entrato deve rientrare
+    await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { lan: { password: 'nuova-password' } } });
+    assert.strictEqual((await lan('GET', '/api/printers', { headers: C })).status, 401);
+
+    // spento: di nuovo chiuso alla rete
+    await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { lan: { enabled: false } } });
+    await sleep(900);
+    assert.strictEqual(srv.host, '127.0.0.1');
+    // il computer continua a funzionare come prima
+    assert.strictEqual((await call(`${base}/api/printers`, { headers: T })).status, 200);
+  } finally {
+    await srv.close();
+  }
+});

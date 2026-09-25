@@ -1,9 +1,15 @@
 // Comunicazione con il servizio SonoPrint: API REST + WebSocket, e stato condiviso.
 
+// token della sessione locale: c'è solo sul computer; i browser della rete usano il cookie dell'accesso
 const TOKEN = document.querySelector('meta[name="sonoprint-token"]').content;
+const authHeaders = () => (TOKEN ? { 'X-SonoPrint-Token': TOKEN } : {});
+const tokenQuery = (sep) => (TOKEN ? `${sep}token=${TOKEN}` : '');
+
+/** Aperto dal browser di un altro dispositivo della rete (con la password). */
+export const FROM_LAN = !TOKEN;
 
 export async function api(method, path, body) {
-  const opts = { method, headers: { 'X-SonoPrint-Token': TOKEN } };
+  const opts = { method, headers: authHeaders() };
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -11,16 +17,24 @@ export async function api(method, path, body) {
   const res = await fetch('/api' + path, opts);
   let data = null;
   try { data = await res.json(); } catch (_) { data = null; }
+  // accesso dalla rete scaduto o password cambiata: si torna alla pagina di accesso
+  if (res.status === 401 && data && data.login) { location.reload(); return new Promise(() => {}); }
   if (!res.ok) throw new Error((data && data.error) || `Errore ${res.status}`);
   return data;
 }
 
+/** Esce dall'accesso dalla rete (solo per i browser degli altri dispositivi). */
+export async function logout() {
+  try { await fetch('/api/logout', { method: 'POST' }); } catch (_) { /* si ricarica comunque */ }
+  location.reload();
+}
+
 export function cameraUrl(printerId) {
-  return `/api/printers/${encodeURIComponent(printerId)}/camera?token=${TOKEN}`;
+  return `/api/printers/${encodeURIComponent(printerId)}/camera${tokenQuery('?')}`;
 }
 
 export function fileUrl(name, kind) {
-  return `/api/files/${encodeURIComponent(name)}/${kind}?token=${TOKEN}`;
+  return `/api/files/${encodeURIComponent(name)}/${kind}${tokenQuery('?')}`;
 }
 
 /** Carica un file nell'archivio con barra di avanzamento. */
@@ -33,12 +47,13 @@ export function uploadTo(path, file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api' + path);
-    xhr.setRequestHeader('X-SonoPrint-Token', TOKEN);
+    if (TOKEN) xhr.setRequestHeader('X-SonoPrint-Token', TOKEN);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
     xhr.onload = () => {
       let data = null;
       try { data = JSON.parse(xhr.responseText); } catch (_) { /* ignora */ }
+      if (xhr.status === 401 && data && data.login) { location.reload(); return; }
       if (xhr.status >= 200 && xhr.status < 300) resolve(data);
       else reject(new Error((data && data.error) || `Errore ${xhr.status}`));
     };
@@ -61,6 +76,7 @@ export const store = {
   logs: {}, // id -> [entries]
   app: { current: '', status: 'unsupported' }, // versione e stato degli aggiornamenti
   network: null, // porta in uso e accesso dal telefono
+  access: FROM_LAN ? 'lan' : 'local', // da dove è aperta l'interfaccia: questo computer o un browser della rete
 };
 
 const listeners = new Map(); // evento -> Set(fn)
@@ -90,7 +106,7 @@ let retry = 0;
 const logSubs = new Map(); // id -> numero di iscritti
 
 export function connectSocket() {
-  const url = `ws://${location.host}/ws?token=${TOKEN}`;
+  const url = `ws://${location.host}/ws${tokenQuery('?')}`;
   ws = new WebSocket(url);
   ws.onopen = () => {
     retry = 0;
@@ -101,6 +117,8 @@ export function connectSocket() {
   ws.onclose = () => {
     store.connected = false;
     emit('connection', false);
+    // dalla rete, un rifiuto ripetuto può voler dire accesso scaduto: la prima richiesta lo scopre
+    if (FROM_LAN && retry === 2) api('GET', '/network').catch(() => {});
     setTimeout(connectSocket, Math.min(5000, 500 * 2 ** retry++));
   };
   ws.onmessage = (ev) => {
@@ -120,6 +138,7 @@ function handle(msg) {
       store.temps = msg.temps || {};
       if (msg.app) store.app = msg.app;
       if (msg.network) store.network = msg.network;
+      store.access = msg.access || 'local';
       store.ready = true;
       emit('printers');
       emit('files');

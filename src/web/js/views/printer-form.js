@@ -1,7 +1,7 @@
 // Aggiunta e modifica di una stampante: scelta del tipo, ricerca in rete e dati di collegamento.
 
 import { h, icon, clear, PRINTER_TYPES } from '../util.js';
-import { api, store } from '../api.js';
+import { api, store, FROM_LAN } from '../api.js';
 import { openModal, run, toast } from '../ui.js';
 import { portSelect, baudSelect } from '../actions.js';
 
@@ -128,17 +128,23 @@ function chooser({ autoScan, onPick }) {
     ...Object.entries(PRINTER_TYPES).map(([type, t]) => h('button', { class: 'type-card', onclick: () => onPick(type, {}) },
       icon(t.icon), h('b', null, t.label), h('span', null, t.desc))));
 
-  const el = h('div', { class: 'stack' },
-    h('div', { class: 'stack tight' },
+  // la ricerca manda richieste a tutta la rete: si fa solo dal computer su cui gira SonoPrint
+  const search = FROM_LAN
+    ? h('div', { class: 'stack tight' },
+      h('div', { class: 'card-title' }, 'Stampanti in rete'),
+      h('div', { class: 'scan-status' }, icon('info'), h('span', null, 'La ricerca delle stampanti in rete si fa dal computer su cui gira SonoPrint. Da qui puoi aggiungerle scegliendo il tipo e scrivendo l\'indirizzo.')))
+    : h('div', { class: 'stack tight' },
       h('div', { class: 'row between' },
         h('div', null, h('div', { class: 'card-title' }, 'Stampanti in rete'), h('div', { class: 'card-sub' }, 'Bambu Lab, Klipper, PrusaLink e OctoPrint nella stessa rete del computer.')),
         scanBtn),
       results,
-      h('div', { class: 'input-group' }, ipInput, probeBtn)),
+      h('div', { class: 'input-group' }, ipInput, probeBtn));
+  const el = h('div', { class: 'stack' },
+    search,
     h('div', { class: 'stack tight' },
       h('div', { class: 'card-title' }, 'Oppure scegli il tipo'),
       typeCards));
-  if (autoScan) setTimeout(scan, 50);
+  if (autoScan && !FROM_LAN) setTimeout(scan, 50);
   else showList([], 'Premi "Cerca in rete" per trovare le stampanti Wi-Fi e di rete, oppure scegli il tipo qui sotto.');
   return el;
 }

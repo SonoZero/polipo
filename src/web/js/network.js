@@ -3,7 +3,7 @@
 import { h, icon, clear, IS_MAC } from './util.js';
 import { api, store, on } from './api.js';
 import { run, toast, confirmDialog } from './ui.js';
-import { check } from './views/printer-form.js';
+import { check, toggle } from './views/printer-form.js';
 
 const isElectron = navigator.userAgent.includes('Electron');
 
@@ -113,6 +113,129 @@ export function createRemoteSettings() {
   const offs = [
     on('settings', render),
     on('network', () => { if (pairing) loadPairing(); }),
+  ];
+  render();
+  return { el, destroy() { offs.forEach((f) => f()); } };
+}
+
+/**
+ * Accesso dai browser degli altri dispositivi della rete (telefono, tablet, altri computer),
+ * protetto da una password. Mostra gli indirizzi da aprire, un QR code e lo stato del firewall.
+ */
+export function createLanSettings() {
+  const el = h('div', { class: 'stack' });
+  let info = null;
+  let loading = false;
+  let password = '';
+
+  async function loadInfo() {
+    if (loading) return;
+    loading = true;
+    try { info = await api('GET', '/lan'); } catch (err) { toast('error', 'Accesso dalla rete', err.message); }
+    loading = false;
+    render();
+  }
+
+  async function allowFirewall(button) {
+    const r = await run(() => api('POST', '/firewall/allow'), { button });
+    if (!r) return;
+    info = { ...info, firewall: { ...info.firewall, ...r } };
+    toast(r.allowed ? 'success' : 'warn', r.allowed ? 'Firewall a posto' : 'Firewall', r.allowed ? 'SonoPrint è consentito nelle reti private.' : 'La regola non risulta ancora attiva: riprova.');
+    render();
+  }
+
+  function firewallBlock() {
+    const fw = info && info.firewall;
+    if (!fw) return null;
+    if (!fw.supported) {
+      return IS_MAC
+        ? h('div', { class: 'hint' }, 'Se il firewall di macOS è attivo, alla prima connessione chiede se consentire le connessioni in entrata a SonoPrint: scegli Consenti.')
+        : null;
+    }
+    if (fw.error) return h('div', { class: 'alert warn' }, icon('alert', 'sm'), h('div', null, fw.error));
+    const parts = [];
+    const allowButton = () => h('button', { class: 'btn sm', onclick: (e) => allowFirewall(e.currentTarget) }, icon('shield', 'sm'), 'Consenti nel firewall');
+    if (fw.blocked) {
+      parts.push(h('div', { class: 'alert error' }, icon('alert', 'sm'),
+        h('div', { class: 'grow' }, 'Il firewall di Windows blocca SonoPrint: gli altri dispositivi non riescono a collegarsi.'), allowButton()));
+    } else if (fw.allowed) {
+      parts.push(h('div', { class: 'alert success' }, icon('shield', 'sm'), h('div', null, 'Il firewall di Windows consente SonoPrint nelle reti private.')));
+    } else {
+      parts.push(h('div', { class: 'alert warn' }, icon('alert', 'sm'),
+        h('div', { class: 'grow' }, 'Il firewall di Windows non ha ancora un permesso per SonoPrint: gli altri dispositivi potrebbero non riuscire a collegarsi.'), allowButton()));
+    }
+    if (fw.publicHome && fw.publicHome.length) {
+      parts.push(h('div', { class: 'hint' }, `In Windows la rete "${fw.publicHome.join('", "')}" è impostata come pubblica, e SonoPrint è consentito solo nelle reti private. Se è la tua rete di casa, apri Impostazioni di Windows, Rete e Internet, e impostala come privata.`));
+    }
+    return h('div', { class: 'stack tight' }, ...parts);
+  }
+
+  function render() {
+    const lan = store.settings.lan || {};
+    const enabled = !!lan.enabled;
+    clear(el);
+
+    const pwInput = h('input', {
+      class: 'input', type: 'password', autocomplete: 'new-password', id: 'lan-password',
+      placeholder: lan.hasPassword ? 'Salvata: scrivine una nuova per cambiarla' : 'Almeno 6 caratteri',
+      value: password, oninput: (e) => { password = e.target.value; },
+    });
+    const savePassword = async (button) => {
+      if (password.length < 6) { toast('warn', 'Password troppo corta', 'Usa almeno 6 caratteri.'); pwInput.focus(); return; }
+      const r = await run(() => api('PUT', '/settings', { lan: { password } }), { button });
+      if (!r) return;
+      password = '';
+      toast('success', 'Password salvata', enabled ? 'Chi era collegato dalla rete deve entrare di nuovo con la password nuova.' : 'Ora puoi aprire SonoPrint alla rete.');
+    };
+
+    el.append(
+      toggle('Apri SonoPrint agli altri dispositivi della rete', enabled, async (v) => {
+        if (v && !lan.hasPassword && password.length < 6) {
+          toast('warn', 'Scegli prima una password', 'Serve per entrare dagli altri dispositivi: almeno 6 caratteri.');
+          render();
+          el.querySelector('#lan-password').focus();
+          return;
+        }
+        const body = { lan: { enabled: v } };
+        if (v && password.length >= 6) body.lan.password = password;
+        const r = await run(() => api('PUT', '/settings', body), { success: v ? 'Accesso dalla rete attivato' : 'Accesso dalla rete disattivato' });
+        if (!r) { render(); return; }
+        password = '';
+        info = null;
+      }),
+      h('div', { class: 'hint' }, 'Da telefono, tablet o un altro computer collegato alla stessa rete apri l\'indirizzo nel browser ed entra con la password. Porta, firmware da file e aggiornamento di SonoPrint restano solo su questo computer.'),
+      h('div', { class: 'field' },
+        h('label', { for: 'lan-password' }, 'Password per entrare dalla rete'),
+        h('div', { class: 'row' }, h('div', { class: 'grow' }, pwInput),
+          h('button', { class: 'btn', onclick: (e) => savePassword(e.currentTarget) }, icon('key'), 'Salva password'))));
+
+    if (!enabled) { info = null; return; }
+    if (!info) { loadInfo(); el.append(h('div', { class: 'dim' }, 'Preparo gli indirizzi...')); return; }
+
+    const urls = info.urls || [];
+    const labels = { lan: 'Rete di casa', tailscale: 'Tailscale', vpn: 'VPN' };
+    const copy = (url) => navigator.clipboard.writeText(url).then(() => toast('success', 'Indirizzo copiato', url), () => {});
+    el.append(h('div', { class: 'pair-grid' },
+      info.qrSvg
+        ? h('div', { class: 'stack', style: { alignItems: 'center', gap: '8px' } },
+          h('div', { class: 'qr-box', html: info.qrSvg }),
+          h('div', { class: 'faint', style: { fontSize: '12px', textAlign: 'center' } }, 'Inquadralo con la fotocamera del telefono'))
+        : h('div'),
+      h('div', { class: 'stack' },
+        h('div', { class: 'field' }, h('label', null, 'Indirizzi da aprire nel browser'),
+          urls.length
+            ? h('div', { class: 'lan-urls' }, ...urls.map((u) => h('div', { class: 'lan-url' },
+              h('span', { class: 'badge plain' }, labels[u.kind] || u.kind),
+              h('a', { class: 'mono', href: u.url, target: '_blank', rel: 'noopener' }, u.url),
+              h('button', { class: 'btn sm ghost icon-only', title: 'Copia', 'aria-label': `Copia ${u.url}`, onclick: () => copy(u.url) }, icon('copy', 'sm')))))
+            : h('div', { class: 'alert warn' }, icon('alert', 'sm'), h('div', null, 'Nessun indirizzo di rete: controlla che il computer sia collegato al Wi-Fi o via cavo.'))),
+        firewallBlock(),
+        h('div', null, h('button', { class: 'btn sm ghost', onclick: () => { info = null; render(); } }, icon('refresh', 'sm'), 'Controlla di nuovo')))));
+  }
+
+  const offs = [
+    on('settings', render),
+    on('network', () => { if (info) { info = null; render(); } }),
   ];
   render();
   return { el, destroy() { offs.forEach((f) => f()); } };

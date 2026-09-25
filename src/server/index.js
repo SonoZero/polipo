@@ -11,7 +11,8 @@ const { EventEmitter } = require('events');
 const { WebSocketServer } = require('ws');
 const QRCode = require('qrcode');
 const { PrinterManager } = require('./manager');
-const { writeJson } = require('./files');
+const { writeJson, readJson } = require('./files');
+const { firewallStatus, allowInFirewall } = require('./firewall');
 const { lanAddresses } = require('./netinfo');
 const { discoverPrinters, probeHost } = require('./discovery');
 const { requestOctoPrintKey } = require('./printers/octoprint');
@@ -20,6 +21,9 @@ const { pipeline } = require('stream/promises');
 const { summarizeFirmware } = require('./printers/base');
 
 const UPDATE_CHECK_EVERY = 6 * 60 * 60 * 1000;
+// browser della rete: dopo l'accesso con la password restano collegati per 30 giorni
+const SESSION_COOKIE = 'sonoprint_session';
+const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const LOCAL_HOST = '127.0.0.1';
 const ANY_HOST = '0.0.0.0';
@@ -50,6 +54,37 @@ async function startServer(options = {}) {
   let current = null;
   let portFallback = false;
   const failedKeys = new Map(); // ip -> { count, until }
+  // eseguibile dell'app (per la regola del firewall); senza app desktop non c'è
+  const appExe = options.appExe || null;
+
+  // sessioni dei browser della rete: si salva solo l'hash del cookie, con la scadenza
+  const sessionsPath = path.join(dataDir, 'sessions.json');
+  const sessions = new Map(Object.entries(readJson(sessionsPath, {})).filter(([, until]) => until > Date.now()));
+  const hashSession = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
+  const saveSessions = () => { try { writeJson(sessionsPath, Object.fromEntries(sessions)); } catch (_) { /* facoltativo */ } };
+  function newSession() {
+    const value = crypto.randomBytes(32).toString('base64url');
+    sessions.set(hashSession(value), Date.now() + SESSION_MS);
+    saveSessions();
+    return value;
+  }
+  function sessionOk(req) {
+    const value = readCookie(req, SESSION_COOKIE);
+    if (!value) return false;
+    const until = sessions.get(hashSession(value));
+    return !!until && until > Date.now();
+  }
+  function endSession(req) {
+    const value = readCookie(req, SESSION_COOKIE);
+    if (value && sessions.delete(hashSession(value))) saveSessions();
+  }
+  function endAllSessions() {
+    if (!sessions.size) return;
+    sessions.clear();
+    saveSessions();
+  }
+  // aperto alla rete se lo chiede l'app del telefono o l'accesso dai browser
+  const wantedHost = () => (manager.settings.remote.enabled || manager.settings.lan.enabled ? ANY_HOST : LOCAL_HOST);
 
   // ---------------------------------------------------------------------------
   // Router API
@@ -57,7 +92,7 @@ async function startServer(options = {}) {
   const routes = [];
   const route = (method, pattern, handler, options = {}) => routes.push({ method, pattern, handler, options });
 
-  route('GET', /^\/api\/state$/, () => fullState());
+  route('GET', /^\/api\/state$/, (req, m, res, auth) => fullState(auth.kind));
   route('GET', /^\/api\/ports$/, () => manager.ports());
 
   route('GET', /^\/api\/printers$/, () => manager.snapshots());
@@ -295,8 +330,8 @@ async function startServer(options = {}) {
   route('GET', /^\/api\/settings$/, () => manager.publicSettings());
   route('PUT', /^\/api\/settings$/, async (req, m, res, auth) => {
     const body = await readJsonBody(req);
-    // porta, accesso remoto e modalità sviluppatore si cambiano solo dal PC
-    if (!auth.local) { delete body.port; delete body.remote; delete body.developer; }
+    // porta, accesso dalla rete, accesso remoto e modalità sviluppatore si cambiano solo dal computer
+    if (!auth.local) { delete body.port; delete body.remote; delete body.developer; delete body.lan; }
     if ('port' in body) {
       const port = validPort(body.port);
       if (!port) throw badRequest('La porta deve essere un numero tra 1024 e 65535.');
@@ -304,12 +339,26 @@ async function startServer(options = {}) {
       if ((port !== manager.settings.port || portFallback) && port !== desired.port) await changePort(port);
     }
     const result = manager.updateSettings(body);
-    const host = manager.settings.remote.enabled ? ANY_HOST : LOCAL_HOST;
+    const host = wantedHost();
     if (host !== desired.host) changeHost(host);
     return result;
   });
 
   route('GET', /^\/api\/network$/, () => networkInfo());
+  // accesso dai browser della rete: indirizzi da aprire, QR code e stato del firewall
+  route('GET', /^\/api\/lan$/, async () => {
+    const urls = lanUrls();
+    const main = urls.find((u) => u.kind === 'lan') || urls[0];
+    const qrSvg = main ? await QRCode.toString(main.url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#000000', light: '#ffffff' } }) : null;
+    const firewall = await firewallStatus(appExe);
+    // reti di casa impostate come pubbliche in Windows (le VPN come NordLynx non contano)
+    if (firewall.networks) {
+      const home = new Set(lanAddresses().filter((a) => a.kind === 'lan').map((a) => a.name));
+      firewall.publicHome = firewall.networks.filter((n) => n.category === 'Public' && home.has(n.alias)).map((n) => n.name || n.alias);
+    }
+    return { enabled: manager.settings.lan.enabled, urls, qrUrl: main ? main.url : null, qrSvg, firewall };
+  }, { localOnly: true });
+  route('POST', /^\/api\/firewall\/allow$/, () => allowInFirewall(appExe), { localOnly: true });
   route('GET', /^\/api\/remote$/, () => pairingInfo(), { localOnly: true });
   route('POST', /^\/api\/remote\/key$/, () => {
     manager.regenerateRemoteKey();
@@ -323,10 +372,12 @@ async function startServer(options = {}) {
     return { ok: true };
   });
 
-  function fullState() {
+  /** Stato completo per l'interfaccia. access: 'local' (questo computer), 'lan' (browser della rete), 'remote' (app del telefono). */
+  function fullState(access = 'local') {
     const temps = {};
     for (const p of manager.list()) temps[p.id] = p.getTempHistory();
     return {
+      access,
       printers: manager.snapshots(),
       files: manager.files.list(),
       settings: manager.publicSettings(),
@@ -350,7 +401,14 @@ async function startServer(options = {}) {
       url: localUrl(),
       hostname: os.hostname(),
       addresses: current.host === ANY_HOST ? lanAddresses() : [],
+      lan: { enabled: manager.settings.lan.enabled, open: current.host === ANY_HOST, urls: lanUrls() },
     };
+  }
+
+  /** Indirizzi da aprire nel browser degli altri dispositivi (solo quando SonoPrint è aperto alla rete). */
+  function lanUrls() {
+    if (current.host !== ANY_HOST || !manager.settings.lan.enabled) return [];
+    return lanAddresses().map((a) => ({ url: `http://${a.address}:${current.port}/`, kind: a.kind, name: a.name }));
   }
 
   async function pairingInfo() {
@@ -375,7 +433,9 @@ async function startServer(options = {}) {
    * - local: richiesta dal PC stesso verso localhost (l'interfaccia di SonoPrint);
    *   il controllo dell'Host blocca gli attacchi di DNS rebinding;
    * - tokenOk: interfaccia locale con il token della sessione;
-   * - keyOk: app del telefono (o altro client) con la chiave di accesso remoto.
+   * - keyOk: app del telefono (o altro client) con la chiave di accesso remoto;
+   * - lanOk: browser della rete entrato con la password (cookie di sessione), verso un indirizzo
+   *   di questo computer: un sito esterno non può usare il cookie (DNS rebinding, SameSite).
    */
   function authenticate(req, url) {
     const local = isLoopback(req.socket.remoteAddress) && allowedHost(req.headers.host);
@@ -384,7 +444,33 @@ async function startServer(options = {}) {
     const keyVal = req.headers['x-sonoprint-key'] || (req.method === 'GET' ? url.searchParams.get('key') : null);
     const { enabled, key } = manager.settings.remote;
     const keyOk = enabled && !!keyVal && !tokenOk && safeEqual(String(keyVal), key);
-    return { local: tokenOk, tokenOk, keyOk, triedKey: !!keyVal };
+    const lanOk = !tokenOk && !keyOk && manager.settings.lan.enabled && lanHostOk(req.headers.host) && sessionOk(req);
+    const kind = tokenOk ? 'local' : keyOk ? 'remote' : lanOk ? 'lan' : null;
+    return { local: tokenOk, tokenOk, keyOk, lanOk, kind, triedKey: !!keyVal };
+  }
+
+  /** Accesso con la password dal browser di un altro dispositivo. */
+  async function handleLogin(req, res, ip) {
+    if (isBlocked(ip)) return sendJson(res, 429, { error: 'Troppi tentativi sbagliati: riprova tra qualche minuto.' });
+    if (!manager.settings.lan.enabled || !lanHostOk(req.headers.host)) {
+      return sendJson(res, 403, { error: 'SonoPrint non è aperto alla rete: attiva "Accesso dalla rete" nelle Impostazioni sul computer.' });
+    }
+    const body = await readJsonBody(req);
+    if (!manager.checkLanPassword(String(body.password || ''))) {
+      noteFailure(ip);
+      return sendJson(res, 401, { error: 'Password sbagliata.' });
+    }
+    failedKeys.delete(ip);
+    const value = newSession();
+    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.round(SESSION_MS / 1000)}`);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  function handleLogout(req, res) {
+    endSession(req);
+    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+    for (const ws of clients) if (ws.kind === 'lan' && ws.session === hashSession(readCookie(req, SESSION_COOKIE) || '')) ws.terminate();
+    return sendJson(res, 200, { ok: true });
   }
 
   // limita i tentativi con chiavi sbagliate (per indirizzo IP)
@@ -412,14 +498,18 @@ async function startServer(options = {}) {
 
       const auth = authenticate(req, url);
 
+      if (isApi && req.method === 'POST' && url.pathname === '/api/login') return await handleLogin(req, res, ip);
+      if (isApi && req.method === 'POST' && url.pathname === '/api/logout') return handleLogout(req, res);
+
       if (isApi) {
         if (isBlocked(ip)) return sendJson(res, 429, { error: 'Troppi tentativi con una chiave sbagliata: riprova tra qualche minuto.' });
-        if (!auth.tokenOk && !auth.keyOk) {
+        if (!auth.tokenOk && !auth.keyOk && !auth.lanOk) {
           if (auth.triedKey) noteFailure(ip);
+          const fromLan = !auth.triedKey && manager.settings.lan.enabled && !allowedHost(req.headers.host) && lanHostOk(req.headers.host);
           const msg = auth.triedKey
             ? (manager.settings.remote.enabled ? 'Chiave di accesso non valida: abbina di nuovo il telefono.' : 'L\'accesso dal telefono è disattivato in SonoPrint.')
-            : 'Token non valido.';
-          return sendJson(res, 401, { error: msg });
+            : fromLan ? 'Accesso scaduto: entra di nuovo con la password.' : 'Token non valido.';
+          return sendJson(res, 401, { error: msg, login: fromLan });
         }
         for (const r of routes) {
           if (r.method !== req.method) continue;
@@ -433,12 +523,14 @@ async function startServer(options = {}) {
         return sendJson(res, 404, { error: 'Endpoint non trovato.' });
       }
 
-      // l'interfaccia web si apre solo dal PC (dal telefono si usa l'app)
-      if (!(isLoopback(ip) && allowedHost(req.headers.host))) {
-        return sendJson(res, 403, { error: 'L\'interfaccia di SonoPrint si apre solo sul computer. Dal telefono usa l\'app SonoPrint.' });
-      }
       if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Metodo non consentito.' });
-      return serveStatic(url.pathname, res);
+      // questo computer: l'interfaccia con il token della sessione locale
+      if (isLoopback(ip) && allowedHost(req.headers.host)) return serveStatic(url.pathname, res, { token, loggedIn: true });
+      // altri dispositivi: solo con l'accesso dalla rete attivo, e prima la password
+      if (!manager.settings.lan.enabled || !lanHostOk(req.headers.host)) {
+        return sendJson(res, 403, { error: 'SonoPrint non è aperto alla rete: attiva "Accesso dalla rete" nelle Impostazioni sul computer.' });
+      }
+      return serveStatic(url.pathname, res, { token: '', loggedIn: sessionOk(req), host: req.headers.host });
     } catch (err) {
       const status = err.status || 400;
       if (!res.headersSent) sendJson(res, status, { error: err.message || String(err) });
@@ -446,20 +538,29 @@ async function startServer(options = {}) {
     }
   }
 
-  function serveStatic(pathname, res) {
+  /**
+   * File dell'interfaccia. ctx.token: token locale da mettere nella pagina (vuoto per la rete);
+   * ctx.loggedIn: per i browser della rete, senza accesso le pagine diventano quella della password.
+   */
+  function serveStatic(pathname, res, ctx) {
     let rel = decodeURIComponent(pathname);
     if (rel === '/' || rel === '') rel = '/index.html';
+    if (path.extname(rel).toLowerCase() === '.html') {
+      if (!ctx.loggedIn) rel = '/login.html';
+      else if (rel === '/login.html') { res.writeHead(302, { Location: '/' }); return res.end(); }
+    }
     const filePath = path.normalize(path.join(WEB_DIR, rel));
     if (!filePath.startsWith(WEB_DIR)) return sendJson(res, 403, { error: 'Vietato.' });
     fs.readFile(filePath, (err, data) => {
       if (err) return sendJson(res, 404, { error: 'Non trovato.' });
       const ext = path.extname(filePath).toLowerCase();
-      if (ext === '.html') data = Buffer.from(data.toString('utf8').replace('%%SONOPRINT_TOKEN%%', token));
+      if (ext === '.html') data = Buffer.from(data.toString('utf8').replace('%%SONOPRINT_TOKEN%%', ctx.token));
+      const wsSources = ctx.host ? `ws://${ctx.host}` : 'ws://127.0.0.1:* ws://localhost:*';
       res.writeHead(200, {
         'Content-Type': MIME[ext] || 'application/octet-stream',
         'Cache-Control': 'no-cache',
         'X-Content-Type-Options': 'nosniff',
-        ...(ext === '.html' ? { 'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob: http: https:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; frame-ancestors 'none'" } : {}),
+        ...(ext === '.html' ? { 'Content-Security-Policy': `default-src 'self'; img-src 'self' data: blob: http: https:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; connect-src 'self' ${wsSources}; frame-ancestors 'none'` } : {}),
       });
       res.end(data);
     });
@@ -475,10 +576,13 @@ async function startServer(options = {}) {
     const url = new URL(req.url, 'http://localhost');
     const ip = req.socket.remoteAddress;
     const auth = authenticate(req, url);
-    // l'interfaccia locale deve anche provenire da una pagina di localhost
+    // l'interfaccia deve anche provenire da una pagina di SonoPrint (localhost, o lo stesso indirizzo per la rete)
     const origin = req.headers.origin;
-    const originOk = !origin || allowedHost(origin.replace(/^https?:\/\//, ''));
-    const allowed = url.pathname === '/ws' && !isBlocked(ip) && ((auth.tokenOk && originOk) || auth.keyOk);
+    const originHost = origin ? origin.replace(/^https?:\/\//, '') : null;
+    const localOriginOk = !origin || allowedHost(originHost);
+    const lanOriginOk = !origin || originHost === req.headers.host;
+    const allowed = url.pathname === '/ws' && !isBlocked(ip)
+      && ((auth.tokenOk && localOriginOk) || auth.keyOk || (auth.lanOk && lanOriginOk));
     if (!allowed) {
       if (auth.triedKey) noteFailure(ip);
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
@@ -486,7 +590,9 @@ async function startServer(options = {}) {
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      ws.remote = !auth.tokenOk;
+      ws.kind = auth.kind;
+      ws.remote = auth.kind === 'remote';
+      ws.session = auth.kind === 'lan' ? hashSession(readCookie(req, SESSION_COOKIE) || '') : null;
       ws.subs = new Set();
       clients.add(ws);
       ws.on('close', () => clients.delete(ws));
@@ -501,12 +607,15 @@ async function startServer(options = {}) {
           ws.subs.delete(msg.id);
         }
       });
-      send(ws, { type: 'hello', ...fullState() });
+      send(ws, { type: 'hello', ...fullState(auth.kind) });
     });
   }
 
   function dropRemoteClients() {
     for (const ws of clients) if (ws.remote) ws.terminate();
+  }
+  function dropLanClients() {
+    for (const ws of clients) if (ws.kind === 'lan') ws.terminate();
   }
 
   function send(ws, obj) {
@@ -523,9 +632,13 @@ async function startServer(options = {}) {
   manager.on('settings-changed', () => {
     broadcast({ type: 'settings', settings: manager.publicSettings() });
     if (!manager.settings.remote.enabled) dropRemoteClients();
+    // accesso dalla rete spento: fuori i browser della rete, e le loro sessioni non valgono più
+    if (!manager.settings.lan.enabled) { dropLanClients(); endAllSessions(); }
   });
   // con una chiave nuova i telefoni abbinati prima devono riabbinarsi
   manager.on('remote-key-changed', dropRemoteClients);
+  // password nuova: chi era entrato con quella vecchia deve rientrare
+  manager.on('lan-password-changed', () => { endAllSessions(); dropLanClients(); });
   manager.on('history-changed', () => broadcast({ type: 'history', history: manager.history.slice(0, 200) }));
   manager.on('notify', (n) => {
     broadcast({ type: 'notify', ...n });
@@ -642,13 +755,13 @@ async function startServer(options = {}) {
         desired.host = old.host;
         events.emit('notify', { level: 'error', title: 'SonoPrint', message: 'Impossibile aprire SonoPrint alla rete: ' + err.message });
       }
-      if (current.host === LOCAL_HOST) dropRemoteClients();
+      if (current.host === LOCAL_HOST) { dropRemoteClients(); dropLanClients(); }
       broadcast({ type: 'network', network: networkInfo() });
     });
   }
 
   await manager.init();
-  const startHost = manager.settings.remote.enabled ? ANY_HOST : LOCAL_HOST;
+  const startHost = wantedHost();
   const startPort = options.port ?? manager.settings.port;
   try {
     const s = await bind(startPort, startHost);
@@ -698,6 +811,26 @@ function headlessAppInfo() {
   info.dismiss = () => state;
   info.openLog = unsupported;
   return info;
+}
+
+/** Leggi un cookie dalla richiesta. */
+function readCookie(req, name) {
+  const header = req.headers.cookie || '';
+  for (const part of header.split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return null;
+}
+
+/** Vero se l'Host richiesto è un indirizzo o il nome di questo computer (niente siti esterni via DNS rebinding). */
+function lanHostOk(h) {
+  if (!h) return false;
+  const host = String(h).replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+  const name = os.hostname().toLowerCase();
+  if (host === name || host === name + '.local') return true;
+  return Object.values(os.networkInterfaces()).flat()
+    .some((a) => a && (a.family === 'IPv4' || a.family === 4) && !a.internal && a.address === host);
 }
 
 function allowedHost(h) {

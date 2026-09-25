@@ -27,6 +27,7 @@ const DEFAULT_SETTINGS = {
   preventSleep: true,
   port: 5723, // porta dell'interfaccia web / API
   remote: { enabled: false, key: '' }, // accesso dal telefono (rete locale o VPN)
+  lan: { enabled: false, hash: '', salt: '' }, // interfaccia dai browser della rete, con password
   developer: false, // modalità sviluppatore: mostra l'accesso dal telefono
 };
 
@@ -81,6 +82,7 @@ class PrinterManager extends EventEmitter {
     this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings || {}) };
     this.settings.port = validPort(this.settings.port) || DEFAULT_PORT;
     this.settings.remote = { ...DEFAULT_SETTINGS.remote, ...(this.settings.remote || {}) };
+    this.settings.lan = { ...DEFAULT_SETTINGS.lan, ...(this.settings.lan || {}) };
     // chi aveva già attivato l'accesso dal telefono (versioni precedenti) lo ritrova
     if (this.settings.remote.enabled && !this.settings.developer) this.settings.developer = true;
     const needsKey = !this.settings.remote.key;
@@ -255,7 +257,17 @@ class PrinterManager extends EventEmitter {
 
   /** Impostazioni senza la chiave di accesso remoto (quella si legge solo dall'abbinamento locale). */
   publicSettings() {
-    return { ...this.settings, remote: { enabled: this.settings.remote.enabled } };
+    const { enabled, hash } = this.settings.lan;
+    return { ...this.settings, remote: { enabled: this.settings.remote.enabled }, lan: { enabled, hasPassword: !!hash } };
+  }
+
+  /** Vero se la password dell'accesso dalla rete è giusta (confronto a tempo costante). */
+  checkLanPassword(password) {
+    const { hash, salt } = this.settings.lan;
+    if (!hash || !salt || typeof password !== 'string' || !password) return false;
+    const got = crypto.scryptSync(password, salt, 64);
+    const want = Buffer.from(hash, 'hex');
+    return got.length === want.length && crypto.timingSafeEqual(got, want);
   }
 
   regenerateRemoteKey() {
@@ -271,6 +283,24 @@ class PrinterManager extends EventEmitter {
       const port = validPort(patch.port);
       if (!port) throw new Error('La porta deve essere un numero tra 1024 e 65535.');
       patch.port = port;
+    }
+    // accesso dalla rete: attivazione e password (mai restituita, solo salvata come hash)
+    let lanPasswordChanged = false;
+    if ('lan' in patch) {
+      const p = patch.lan || {};
+      const lan = { ...this.settings.lan };
+      if (typeof p.password === 'string' && p.password !== '') {
+        if (p.password.length < 6) throw new Error('La password deve avere almeno 6 caratteri.');
+        if (p.password.length > 200) throw new Error('La password è troppo lunga.');
+        lan.salt = crypto.randomBytes(16).toString('hex');
+        lan.hash = crypto.scryptSync(p.password, lan.salt, 64).toString('hex');
+        lanPasswordChanged = true;
+      }
+      if ('enabled' in p) lan.enabled = !!p.enabled;
+      if (lan.enabled && !lan.hash) throw new Error('Scegli una password prima di aprire SonoPrint alla rete.');
+      patch.lan = lan;
+    } else {
+      patch.lan = this.settings.lan;
     }
     // della sezione "remote" si può cambiare solo l'attivazione, mai la chiave
     patch.remote = 'remote' in patch
@@ -293,6 +323,7 @@ class PrinterManager extends EventEmitter {
     if (!next.developer) next.remote = { ...next.remote, enabled: false };
     this.settings = next;
     this._saveConfig();
+    if (lanPasswordChanged) this.emit('lan-password-changed');
     this.emit('settings-changed');
     return this.publicSettings();
   }

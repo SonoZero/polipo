@@ -1,12 +1,12 @@
 // Impostazioni generali dell'app.
 
 import { h, icon, clear } from '../util.js';
-import { api, store, on } from '../api.js';
+import { api, store, on, logout } from '../api.js';
 import { run, toast } from '../ui.js';
 import { check, toggle } from './printer-form.js';
 import { applyTheme, getThemePref } from '../theme.js';
 import { createUpdateSettings } from '../updates.js';
-import { createPortSettings, createRemoteSettings } from '../network.js';
+import { createPortSettings, createRemoteSettings, createLanSettings } from '../network.js';
 
 const TAPS_FOR_DEVELOPER = 7;
 
@@ -14,6 +14,9 @@ export function mountSettings(container) {
   const s = JSON.parse(JSON.stringify(store.settings));
   const updates = createUpdateSettings();
   const portSettings = createPortSettings();
+  // aperto dal browser di un altro dispositivo: niente sezioni riservate a questo computer
+  const local = store.access !== 'lan';
+  const lanSettings = local ? createLanSettings() : null;
   let remoteSettings = null;
   const offs = [];
   const presetsBox = h('div', { class: 'stack tight' });
@@ -101,9 +104,12 @@ export function mountSettings(container) {
         class: 'btn primary',
         onclick: (e) => run(() => api('PUT', '/settings', { presets: s.presets, notifications: s.notifications, preventSleep: s.preventSleep }), { button: e.currentTarget, success: 'Impostazioni salvate' }),
       }, icon('check'), 'Salva impostazioni')),
-      card('Rete', portSettings.el),
-      devSlot,
-      card('Aggiornamenti', updates.el, h('div', null, h('a', { class: 'btn sm', href: '#/updates' }, icon('download', 'sm'), 'Centro aggiornamenti: app e stampanti'))),
+      local ? card('Rete', portSettings.el) : null,
+      local ? card('Accesso dalla rete', lanSettings.el) : card('Accesso dalla rete',
+        h('div', { class: 'dim' }, 'Sei collegato a SonoPrint dalla rete, con la password. Porta, firmware da file e aggiornamento di SonoPrint si gestiscono dal computer su cui gira.'),
+        h('div', null, h('button', { class: 'btn', onclick: () => logout() }, icon('unplug'), 'Esci'))),
+      local ? devSlot : null,
+      local ? card('Aggiornamenti', updates.el, h('div', null, h('a', { class: 'btn sm', href: '#/updates' }, icon('download', 'sm'), 'Centro aggiornamenti: app e stampanti'))) : null,
       card('Informazioni',
         h('div', { class: 'row', style: { alignItems: 'flex-start' } },
           h('img', { src: 'img/icon.svg', alt: '', style: { width: '48px', height: '48px', borderRadius: '12px' } }),
@@ -124,6 +130,7 @@ export function mountSettings(container) {
       offs.forEach((f) => f());
       updates.destroy();
       portSettings.destroy();
+      if (lanSettings) lanSettings.destroy();
       if (remoteSettings) remoteSettings.destroy();
     },
   };

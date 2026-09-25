@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SonoPrint: accesso dalla rete di casa.">
+  <title>SonoPrint</title>
+  <link rel="icon" href="img/icon.svg" type="image/svg+xml">
+  <link rel="preload" href="fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="login-page">
+  <main class="login-wrap">
+    <form class="card login-card" id="login-form" novalidate>
+      <div class="login-brand">
+        <img src="img/icon.svg" alt="">
+        <div>
+          <div class="brand-name">SonoPrint</div>
+          <div class="brand-sub">Stampanti 3D in un posto solo</div>
+        </div>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input class="input" id="password" name="password" type="password" autocomplete="current-password" autofocus required aria-describedby="login-hint login-error">
+        <div class="hint" id="login-hint">È la password scelta sul computer in Impostazioni, Accesso dalla rete.</div>
+        <div class="field-error" id="login-error" role="alert" hidden></div>
+      </div>
+      <button class="btn primary block" type="submit" id="login-button">Entra</button>
+      <div class="made-by">made by <b>sonozero</b></div>
+    </form>
+  </main>
+  <script type="module" src="js/login.js"></script>
+</body>
+</html>

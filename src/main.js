@@ -39,7 +39,12 @@ async function start() {
 
   migrateFromPolipo();
   updater = new Updater(app);
-  server = await startServer({ dataDir: path.join(app.getPath('userData'), 'data'), appInfo: updater });
+  server = await startServer({
+    dataDir: path.join(app.getPath('userData'), 'data'),
+    appInfo: updater,
+    // eseguibile installato, per la regola del firewall di Windows (non per npm start)
+    appExe: app.isPackaged ? process.execPath : null,
+  });
 
   // porta cambiata dalle impostazioni: ricarica l'interfaccia al nuovo indirizzo
   server.events.on('url-changed', (url) => {
