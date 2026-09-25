@@ -1,7 +1,7 @@
 {
   "name": "sonoprint",
   "productName": "SonoPrint",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Controllo di più stampanti 3D da Windows e Mac: USB, Bambu Lab, Klipper, PrusaLink e OctoPrint",
   "main": "src/main.js",
   "author": "sonozero",
