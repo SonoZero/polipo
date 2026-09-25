@@ -3,6 +3,7 @@
 // Gestisce l'elenco delle stampanti, la loro configurazione salvata su disco,
 // le impostazioni generali e la cronologia delle stampe.
 
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
@@ -29,9 +30,20 @@ const DEFAULT_SETTINGS = {
   remote: { enabled: false, key: '' }, // accesso dal telefono (rete locale o VPN)
   lan: { enabled: false, hash: '', salt: '' }, // interfaccia dai browser della rete, con password
   developer: false, // modalità sviluppatore: mostra l'accesso dal telefono
+  startAtLogin: false, // app desktop: si avvia (nascosta) quando si accede al computer
+  runInBackground: true, // app desktop: chiudendo la finestra resta attiva accanto all'orologio
 };
 
 const DEFAULT_PORT = DEFAULT_SETTINGS.port;
+
+// stampe USB in corso, salvate su disco: se SonoPrint si chiude di colpo, al riavvio si sa cosa si è fermato
+const ACTIVE_FILE = 'active-prints.json';
+const ACTIVE_SAVE_MS = 30 * 1000;
+const INTERRUPT_REASONS = {
+  logoff: 'Windows ha chiuso la sessione (uscita dall\'account)',
+  shutdown: 'Il computer si è spento o riavviato',
+  crash: 'SonoPrint si è chiuso all\'improvviso',
+};
 
 function newRemoteKey() {
   return crypto.randomBytes(24).toString('base64url');
@@ -78,6 +90,10 @@ class PrinterManager extends EventEmitter {
     this.dataDir = dataDir;
     this.configPath = path.join(dataDir, 'config.json');
     this.historyPath = path.join(dataDir, 'history.json');
+    this.activePath = path.join(dataDir, ACTIVE_FILE);
+    this.activeTimer = null;
+    // stampe interrotte dalla chiusura improvvisa precedente (da mostrare una volta)
+    this.interrupted = [];
     const saved = readJsonSafe(this.configPath, {});
     this.settings = { ...DEFAULT_SETTINGS, ...(saved.settings || {}) };
     this.settings.port = validPort(this.settings.port) || DEFAULT_PORT;
@@ -103,6 +119,7 @@ class PrinterManager extends EventEmitter {
 
   async init() {
     this.files.init();
+    this._recoverInterrupted();
     for (const p of this.printers.values()) {
       const target = p.type === 'usb' ? p.config.port : p.config.net.host;
       if (p.config.autoConnect && target) {
@@ -319,6 +336,8 @@ class PrinterManager extends EventEmitter {
     next.notifications = !!next.notifications;
     next.preventSleep = !!next.preventSleep;
     next.developer = !!next.developer;
+    next.startAtLogin = !!next.startAtLogin;
+    next.runInBackground = !!next.runInBackground;
     // senza modalità sviluppatore l'accesso dal telefono resta spento
     if (!next.developer) next.remote = { ...next.remote, enabled: false };
     this.settings = next;
@@ -349,8 +368,12 @@ class PrinterManager extends EventEmitter {
       this._saveConfig();
       this.emit('printer-update', p);
     });
-    p.on('job-started', () => this.emit('printing-changed'));
+    p.on('job-started', () => {
+      this._saveActive();
+      this.emit('printing-changed');
+    });
     p.on('job-ended', (info) => {
+      this._saveActive();
       this.files.recordPrint(info.file, info.result, info.printerName);
       this.history.unshift({
         printerId: info.printerId,
@@ -381,6 +404,78 @@ class PrinterManager extends EventEmitter {
   async shutdown() {
     this.files.flush();
     await Promise.all(this.list().map((p) => p.disconnect().catch(() => {})));
+    clearInterval(this.activeTimer);
+    this.activeTimer = null;
+  }
+
+  // --- stampe interrotte da una chiusura improvvisa -----------------------------------
+
+  /** Salva su disco le stampe USB in corso (o cancella il file se non ce ne sono). */
+  _saveActive(cause) {
+    const prints = [...this.printers.values()].filter((p) => p.type === 'usb' && p.job).map((p) => {
+      const job = p._jobInfo() || {};
+      return {
+        printerId: p.id,
+        printer: p.config.name,
+        virtual: (p.port || p.config.port) === VIRTUAL_PORT,
+        file: job.file || p.job.name,
+        startedAt: job.startedAt || p.job.startedAt || null,
+        progress: typeof job.progress === 'number' ? job.progress : null,
+        elapsed: job.elapsed ?? null,
+        at: Date.now(),
+      };
+    });
+    try {
+      if (prints.length) writeJson(this.activePath, { prints, cause: cause || null });
+      else fs.rmSync(this.activePath, { force: true });
+    } catch (_) { /* facoltativo: serve solo a spiegare una chiusura improvvisa */ }
+    if (prints.length && !this.activeTimer) {
+      this.activeTimer = setInterval(() => this._saveActive(), ACTIVE_SAVE_MS);
+      if (this.activeTimer.unref) this.activeTimer.unref();
+    } else if (!prints.length && this.activeTimer) {
+      clearInterval(this.activeTimer);
+      this.activeTimer = null;
+    }
+  }
+
+  /**
+   * Windows sta chiudendo la sessione (uscita dall'account, spegnimento): lo annota accanto
+   * alle stampe in corso, così al riavvio si sa perché si sono fermate. Scrittura sincrona.
+   */
+  noteSessionEnd(cause) {
+    if ([...this.printers.values()].some((p) => p.type === 'usb' && p.job)) this._saveActive(cause);
+  }
+
+  /** All'avvio: le stampe rimaste nel file si sono fermate con la chiusura precedente. */
+  _recoverInterrupted() {
+    let saved;
+    try { saved = readJsonSafe(this.activePath, null, { attempts: 1 }); } catch (_) { saved = null; }
+    try { fs.rmSync(this.activePath, { force: true }); } catch (_) { /* ignora */ }
+    const prints = saved && Array.isArray(saved.prints) ? saved.prints : [];
+    if (!prints.length) return;
+    const cause = INTERRUPT_REASONS[saved.cause] ? saved.cause : 'crash';
+    for (const pr of prints) {
+      const entry = {
+        printerId: pr.printerId || null,
+        printer: String(pr.printer || ''),
+        file: String(pr.file || ''),
+        result: 'failed',
+        reason: INTERRUPT_REASONS[cause],
+        startedAt: pr.startedAt || null,
+        finishedAt: pr.at || Date.now(),
+        duration: typeof pr.elapsed === 'number' ? pr.elapsed : null,
+      };
+      this.history.unshift(entry);
+      this.files.recordPrint(entry.file, 'failed', entry.printer);
+      this.interrupted.push({ ...entry, cause, progress: pr.progress ?? null, virtual: !!pr.virtual });
+    }
+    this.history = this.history.slice(0, 500);
+    writeJson(this.historyPath, this.history);
+  }
+
+  dismissInterrupted() {
+    this.interrupted = [];
+    this.emit('interrupted-changed');
   }
 }
 

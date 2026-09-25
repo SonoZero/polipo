@@ -47,6 +47,17 @@ Se una stampante USB non si connette:
 - installa il driver CH340 se la porta non compare (schede Creality e Anycubic più vecchie);
 - prova un altro baudrate (le Anycubic i3 Mega usano 250000, quasi tutte le altre 115200).
 
+## In background e all'avvio del computer
+
+Le stampanti USB ricevono la stampa riga per riga da SonoPrint, quindi SonoPrint deve restare aperto fino alla fine. In **Impostazioni, Avvio e background**:
+
+- **Resta attivo in background quando chiudi la finestra** (acceso di serie): chiudendo la finestra SonoPrint resta fra le icone accanto all'orologio, continua a stampare e resta raggiungibile dalla rete. Clic sull'icona per riaprirlo, clic destro e **Esci** per chiuderlo del tutto (con una stampa USB in corso chiede conferma).
+- **Avvia SonoPrint quando accendi il computer**: parte nascosto all'accesso a Windows e collega da solo le stampanti con la connessione automatica. Su Mac parte e resta nel Dock.
+
+**Desktop remoto**: uscire dall'account di Windows (Start, Esci) chiude tutti i programmi, anche quelli in background, e quindi ferma le stampe USB. Per lasciare una stampa in corso chiudi la finestra del Desktop remoto con la X: la sessione resta aperta. Se qualcuno prova a uscire dall'account o a spegnere mentre SonoPrint stampa, SonoPrint lo blocca e Windows mostra che SonoPrint sta stampando.
+
+Se SonoPrint si chiude durante una stampa (uscita dall'account, spegnimento, blocco), al riavvio la stampa compare nella **Cronologia** con il motivo e una finestra lo spiega. Il registro di avvii e chiusure è in `%APPDATA%\SonoPrint\logs\sonoprint.log` (**Impostazioni, Informazioni, Registro**).
+
 ## Centro aggiornamenti
 
 La pagina **Aggiornamenti** del menu raccoglie tutto; il numero accanto alla voce dice quanti aggiornamenti ci sono.
@@ -165,7 +176,7 @@ Se fai un **fork** e pubblichi le tue versioni, cambia `repository.url` e `build
 
 - Codici di accesso, password e chiavi API delle stampanti sono salvati in `%APPDATA%\SonoPrint\data\config.json`, come fa OctoPrint. Non vengono mai mandati all'interfaccia né al telefono.
 - Con le Bambu Lab la connessione è verificata con i certificati di Bambu Lab. I firmware vecchi usano un certificato non firmato: SonoPrint lo memorizza alla prima connessione e poi accetta solo quello. Chi fosse già nella tua rete in quel primo momento potrebbe intercettare il codice di accesso: fai la prima connessione da una rete di cui ti fidi.
-- Ricerca in rete, caricamento del firmware, schede SD, porta, accesso dalla rete e accesso dal telefono si gestiscono solo dal computer.
+- Ricerca in rete, caricamento del firmware, schede SD, porta, accesso dalla rete, accesso dal telefono e avvio con il computer si gestiscono solo dal computer.
 - L'accesso dalla rete chiede una password (salvata come hash scrypt), limita i tentativi sbagliati e usa un cookie di sessione valido solo per l'indirizzo di SonoPrint: un sito esterno non può usarlo.
 
 ## Sviluppo
@@ -188,11 +199,11 @@ node scripts/build-assets.js    # copia icone, font e Three.js in src/web (dopo 
 
 ```
 src/
-  main.js                 finestra Electron, notifiche, blocco sospensione, conferma di chiusura
+  main.js                 finestra Electron, icona accanto all'orologio, avvio con il computer, notifiche, registro
   updater.js              aggiornamenti automatici dalle Release di GitHub
   server/
     index.js              server HTTP + WebSocket (token per il PC, chiave per il telefono)
-    manager.js            elenco stampanti, configurazione, cronologia
+    manager.js            elenco stampanti, configurazione, cronologia, stampe interrotte
     discovery.js          ricerca delle stampanti in rete (SSDP, mDNS, controllo degli indirizzi)
     printers/             un modulo per tipo: marlin (USB), bambu, klipper, prusalink, octoprint
     firmware/             scrittura via USB delle schede AVR, schede SD, ultime versioni da GitHub

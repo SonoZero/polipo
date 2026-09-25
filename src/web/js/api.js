@@ -77,6 +77,8 @@ export const store = {
   app: { current: '', status: 'unsupported' }, // versione e stato degli aggiornamenti
   network: null, // porta in uso e accesso dal telefono
   access: FROM_LAN ? 'lan' : 'local', // da dove è aperta l'interfaccia: questo computer o un browser della rete
+  desktop: null, // app desktop: avvio con il computer e background (null nel browser senza app)
+  interrupted: [], // stampe fermate dalla chiusura improvvisa precedente
 };
 
 const listeners = new Map(); // evento -> Set(fn)
@@ -139,6 +141,8 @@ function handle(msg) {
       if (msg.app) store.app = msg.app;
       if (msg.network) store.network = msg.network;
       store.access = msg.access || 'local';
+      store.desktop = msg.desktop || null;
+      store.interrupted = msg.interrupted || [];
       store.ready = true;
       emit('printers');
       emit('files');
@@ -178,7 +182,12 @@ function handle(msg) {
       break;
     case 'settings':
       store.settings = msg.settings;
+      if ('desktop' in msg) store.desktop = msg.desktop;
       emit('settings');
+      break;
+    case 'interrupted':
+      store.interrupted = msg.interrupted || [];
+      emit('interrupted');
       break;
     case 'history':
       store.history = msg.history;

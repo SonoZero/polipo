@@ -13,6 +13,7 @@ import { openAddPrinter } from './views/printer-form.js';
 import { applyTheme } from './theme.js';
 import { createUpdateBanner } from './updates.js';
 import { openUpdateWizard } from './components/update-wizard.js';
+import { showInterruptedPrints } from './components/interrupted-dialog.js';
 
 applyTheme();
 const updateBanner = createUpdateBanner();
@@ -182,7 +183,7 @@ window.addEventListener('hashchange', () => { setNav(false); renderRoute(); });
 
 // --- eventi dal servizio ------------------------------------------------------------
 
-on('ready', () => { currentKey = ''; renderRoute(); showUpdateOutcome(); });
+on('ready', () => { currentKey = ''; renderRoute(); showUpdateOutcome(); showInterruptedPrints(); });
 
 // dopo un aggiornamento (riuscito o no) il wizard si apre da solo, una volta
 let outcomeShown = false;

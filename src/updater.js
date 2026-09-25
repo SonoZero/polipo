@@ -251,7 +251,7 @@ function decodeEntities(s) {
   });
 }
 
-/** Registro degli aggiornamenti in un file (anche quello di electron-updater), al massimo circa 1 MB. */
+/** Registro in un file (aggiornamenti, electron-updater, avvii e chiusure dell'app), al massimo circa 1 MB. */
 function fileLogger(file) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -274,4 +274,4 @@ function friendlyError(err) {
   return msg.split('\n')[0].slice(0, 200);
 }
 
-module.exports = { Updater, notesToBlocks };
+module.exports = { Updater, notesToBlocks, fileLogger };

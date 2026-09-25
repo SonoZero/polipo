@@ -46,6 +46,36 @@ export function mountSettings(container) {
   };
   renderTheme();
 
+  // app desktop: avvio con il computer e background (le applica il processo principale)
+  const startupBox = h('div', { class: 'stack' });
+  function renderStartup() {
+    clear(startupBox);
+    const d = store.desktop;
+    if (!d) return;
+    const st = store.settings;
+    const save = async (patch, message) => {
+      if (!await run(() => api('PUT', '/settings', patch), { success: message })) renderStartup();
+    };
+    startupBox.append(...[
+      d.loginItem
+        ? toggle('Avvia SonoPrint quando accendi il computer', st.startAtLogin, (v) => save({ startAtLogin: v },
+          v ? 'SonoPrint partirà con il computer' : 'SonoPrint non partirà più con il computer'))
+        : h('div', { class: 'dim' }, 'L\'avvio con il computer si imposta dalla versione installata di SonoPrint.'),
+      d.loginItem ? h('div', { class: 'hint' }, d.tray
+        ? 'Parte nascosto, in background: lo trovi fra le icone accanto all\'orologio. Le stampanti con la connessione automatica si collegano da sole.'
+        : 'Parte con il computer e resta nel Dock. Le stampanti con la connessione automatica si collegano da sole.') : null,
+      st.startAtLogin && d.loginBlocked
+        ? h('div', { class: 'alert warn' }, icon('alert', 'sm'), h('div', null, d.tray
+          ? 'L\'avvio di SonoPrint è disattivato in Gestione attività di Windows. Per riattivarlo spegni e riaccendi qui l\'interruttore.'
+          : 'macOS deve approvare l\'avvio di SonoPrint: apri Impostazioni di Sistema, Generali, Elementi login, e consenti SonoPrint.'))
+        : null,
+      d.tray ? toggle('Resta attivo in background quando chiudi la finestra', st.runInBackground, (v) => save({ runInBackground: v },
+        v ? 'SonoPrint resterà attivo in background' : 'Chiudendo la finestra SonoPrint si chiuderà')) : null,
+      d.tray ? h('div', { class: 'hint' }, 'Chiudendo la finestra SonoPrint continua a stampare con le stampanti USB e resta raggiungibile dalla rete. Per chiuderlo del tutto fai clic con il tasto destro sull\'icona accanto all\'orologio e scegli Esci.') : null,
+    ].filter(Boolean));
+  }
+  renderStartup();
+
   const isElectron = navigator.userAgent.includes('Electron');
   const notifHint = h('div', { class: 'hint' });
   if (!isElectron && 'Notification' in window && Notification.permission === 'denied') notifHint.textContent = 'Le notifiche sono bloccate dal browser.';
@@ -104,6 +134,7 @@ export function mountSettings(container) {
         class: 'btn primary',
         onclick: (e) => run(() => api('PUT', '/settings', { presets: s.presets, notifications: s.notifications, preventSleep: s.preventSleep }), { button: e.currentTarget, success: 'Impostazioni salvate' }),
       }, icon('check'), 'Salva impostazioni')),
+      local && store.desktop ? card('Avvio e background', startupBox) : null,
       local ? card('Rete', portSettings.el) : null,
       local ? card('Accesso dalla rete', lanSettings.el) : card('Accesso dalla rete',
         h('div', { class: 'dim' }, 'Sei collegato a SonoPrint dalla rete, con la password. Porta, firmware da file e aggiornamento di SonoPrint si gestiscono dal computer su cui gira.'),
@@ -117,12 +148,16 @@ export function mountSettings(container) {
             version,
             h('div', { class: 'dim', style: { fontSize: '13px', maxWidth: '62ch' } }, 'Controlla più stampanti 3D insieme: via USB (Marlin, Prusa, RepRap) e in rete (Bambu Lab, Klipper, PrusaLink, OctoPrint).'),
             h('div', { class: 'made-by', style: { textAlign: 'left', marginTop: '8px' } }, 'made by ', h('b', null, 'sonozero')),
+            local && store.desktop && store.desktop.logs
+              ? h('div', { style: { marginTop: '10px' } }, h('button', { class: 'btn sm', onclick: (e) => run(() => api('POST', '/app/logs'), { button: e.currentTarget }) }, icon('file', 'sm'), 'Registro'))
+              : null,
             devRow)))));
 
   renderDeveloper();
   offs.push(on('settings', () => {
     const was = !!remoteSettings;
     if (was !== !!store.settings.developer) renderDeveloper();
+    renderStartup();
   }));
 
   return {

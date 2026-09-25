@@ -56,6 +56,11 @@ test('configurazione: mai sovrascritta con dati vuoti se non si riesce a leggerl
   // valido
   fs.writeFileSync(broken, '{"printers":[{"name":"ender"}]}');
   assert.strictEqual(readJsonSafe(broken, {}).printers[0].name, 'ender');
+  // salvato con il BOM (Blocco note, PowerShell): valido lo stesso, niente copia "rovinato"
+  const copies = fs.readdirSync(dir).length;
+  fs.writeFileSync(broken, '﻿{"printers":[{"name":"ender"}]}');
+  assert.strictEqual(readJsonSafe(broken, {}).printers[0].name, 'ender');
+  assert.strictEqual(fs.readdirSync(dir).length, copies);
 });
 
 test('riepilogo degli aggiornamenti per ogni tipo di stampante', () => {

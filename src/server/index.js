@@ -56,6 +56,8 @@ async function startServer(options = {}) {
   const failedKeys = new Map(); // ip -> { count, until }
   // eseguibile dell'app (per la regola del firewall); senza app desktop non c'è
   const appExe = options.appExe || null;
+  // app desktop: avvio con il computer e background ({ info(), apply(settings) }); senza app non c'è
+  const desktop = options.desktop || null;
 
   // sessioni dei browser della rete: si salva solo l'hash del cookie, con la scadenza
   const sessionsPath = path.join(dataDir, 'sessions.json');
@@ -331,7 +333,7 @@ async function startServer(options = {}) {
   route('PUT', /^\/api\/settings$/, async (req, m, res, auth) => {
     const body = await readJsonBody(req);
     // porta, accesso dalla rete, accesso remoto e modalità sviluppatore si cambiano solo dal computer
-    if (!auth.local) { delete body.port; delete body.remote; delete body.developer; delete body.lan; }
+    if (!auth.local) { delete body.port; delete body.remote; delete body.developer; delete body.lan; delete body.startAtLogin; delete body.runInBackground; }
     if ('port' in body) {
       const port = validPort(body.port);
       if (!port) throw badRequest('La porta deve essere un numero tra 1024 e 65535.');
@@ -364,6 +366,11 @@ async function startServer(options = {}) {
     manager.regenerateRemoteKey();
     return pairingInfo();
   }, { localOnly: true });
+  route('POST', /^\/api\/app\/logs$/, () => {
+    if (!desktop || !desktop.openLogs) throw badRequest('Il registro c\'è solo nell\'app installata.');
+    return desktop.openLogs();
+  }, { localOnly: true });
+  route('POST', /^\/api\/interrupted\/dismiss$/, () => { manager.dismissInterrupted(); return { ok: true }; });
   route('GET', /^\/api\/history$/, () => manager.history);
   route('DELETE', /^\/api\/history$/, () => {
     manager.history = [];
@@ -385,6 +392,8 @@ async function startServer(options = {}) {
       temps,
       app: appInfo.getState(),
       network: networkInfo(),
+      desktop: desktop ? desktop.info() : null,
+      interrupted: manager.interrupted,
     };
   }
 
@@ -630,7 +639,10 @@ async function startServer(options = {}) {
   manager.on('printers-changed', () => broadcast({ type: 'printers', printers: manager.snapshots() }));
   manager.on('temp', (id, sample) => broadcast({ type: 'temp', id, sample }));
   manager.on('settings-changed', () => {
-    broadcast({ type: 'settings', settings: manager.publicSettings() });
+    if (desktop) {
+      try { desktop.apply(manager.settings); } catch (_) { /* l'avvio con il computer è facoltativo */ }
+    }
+    broadcast({ type: 'settings', settings: manager.publicSettings(), desktop: desktop ? desktop.info() : null });
     if (!manager.settings.remote.enabled) dropRemoteClients();
     // accesso dalla rete spento: fuori i browser della rete, e le loro sessioni non valgono più
     if (!manager.settings.lan.enabled) { dropLanClients(); endAllSessions(); }
@@ -640,6 +652,7 @@ async function startServer(options = {}) {
   // password nuova: chi era entrato con quella vecchia deve rientrare
   manager.on('lan-password-changed', () => { endAllSessions(); dropLanClients(); });
   manager.on('history-changed', () => broadcast({ type: 'history', history: manager.history.slice(0, 200) }));
+  manager.on('interrupted-changed', () => broadcast({ type: 'interrupted', interrupted: manager.interrupted }));
   manager.on('notify', (n) => {
     broadcast({ type: 'notify', ...n });
     events.emit('notify', n);

@@ -461,3 +461,97 @@ test('accesso dalla rete con password', async (t) => {
     await srv.close();
   }
 });
+
+function waitFor(fn, timeout = 15000, what = 'condizione') {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const iv = setInterval(() => {
+      let ok = false;
+      try { ok = fn(); } catch (_) { ok = false; }
+      if (ok) { clearInterval(iv); resolve(); } else if (Date.now() - start > timeout) { clearInterval(iv); reject(new Error('Timeout in attesa di: ' + what)); }
+    }, 20);
+  });
+}
+
+test('stampa USB fermata da una chiusura improvvisa: al riavvio è in cronologia con il motivo', async () => {
+  const { PrinterManager } = require('../src/server/manager');
+  const { Readable } = require('stream');
+  const dir = tmpDir();
+  const activePath = path.join(dir, 'active-prints.json');
+  const m = new PrinterManager(dir);
+  await m.init();
+  const p = m.add({ type: 'usb', name: 'Virtuale', port: 'VIRTUAL', virtualSpeed: 1 });
+  const lines = ['G28'];
+  for (let i = 0; i < 4000; i++) lines.push(`G1 X${i % 100} Y${i % 50} E0.1 F1800`);
+  const name = await m.files.add('lungo.gcode', Readable.from([lines.join('\n') + '\n']));
+  let saved;
+  try {
+    await m.connect(p.id);
+    await waitFor(() => p.state === 'operational', 10000, 'stampante pronta');
+    m.startPrint(p.id, name);
+    // durante la stampa il file c'è, senza motivo
+    await waitFor(() => fs.existsSync(activePath), 5000, 'file delle stampe in corso');
+    const during = JSON.parse(fs.readFileSync(activePath, 'utf8'));
+    assert.strictEqual(during.prints[0].file, name);
+    assert.strictEqual(during.prints[0].printer, 'Virtuale');
+    assert.strictEqual(during.prints[0].virtual, true);
+    assert.strictEqual(during.cause, null);
+    // Windows chiude la sessione: il motivo si scrive subito
+    m.noteSessionEnd('logoff');
+    saved = fs.readFileSync(activePath, 'utf8');
+    assert.strictEqual(JSON.parse(saved).cause, 'logoff');
+  } finally {
+    await m.shutdown();
+  }
+  // chiusura normale: la stampa finisce in cronologia e il file sparisce
+  assert.ok(!fs.existsSync(activePath));
+
+  // come se Windows avesse chiuso SonoPrint di colpo: il file è rimasto
+  fs.writeFileSync(activePath, saved);
+  const srv = await startServer({ dataDir: dir, port: 0 });
+  const base = `http://127.0.0.1:${srv.port}`;
+  const T = { 'X-SonoPrint-Token': srv.token };
+  try {
+    assert.ok(!fs.existsSync(activePath), 'il file si legge una volta sola');
+    const state = (await call(`${base}/api/state`, { headers: T })).data;
+    assert.strictEqual(state.interrupted.length, 1);
+    assert.strictEqual(state.interrupted[0].cause, 'logoff');
+    assert.strictEqual(state.interrupted[0].file, name);
+    assert.strictEqual(state.history[0].result, 'failed');
+    assert.match(state.history[0].reason, /uscita dall'account/);
+    assert.strictEqual((await call(`${base}/api/interrupted/dismiss`, { method: 'POST', headers: T })).status, 200);
+    assert.deepStrictEqual((await call(`${base}/api/state`, { headers: T })).data.interrupted, []);
+  } finally {
+    await srv.close();
+  }
+});
+
+test('avvio con il computer e background: impostazioni applicate dall\'app desktop', async () => {
+  const applied = [];
+  const desktop = { info: () => ({ tray: true, loginItem: true, loginBlocked: false, logs: true }), apply: (s) => applied.push(s.startAtLogin) };
+  const srv = await startServer({ dataDir: tmpDir(), port: 0, desktop });
+  const base = `http://127.0.0.1:${srv.port}`;
+  const T = { 'X-SonoPrint-Token': srv.token };
+  try {
+    const state = (await call(`${base}/api/state`, { headers: T })).data;
+    assert.deepStrictEqual(state.desktop, desktop.info());
+    assert.strictEqual(state.settings.startAtLogin, false);
+    assert.strictEqual(state.settings.runInBackground, true);
+    const r = await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { startAtLogin: true, runInBackground: false } });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.startAtLogin, true);
+    assert.strictEqual(r.data.runInBackground, false);
+    assert.deepStrictEqual(applied, [true]);
+    // senza app desktop il registro non c'è
+    const plain = await startServer({ dataDir: tmpDir(), port: 0 });
+    try {
+      const logs = await call(`http://127.0.0.1:${plain.port}/api/app/logs`, { method: 'POST', headers: { 'X-SonoPrint-Token': plain.token } });
+      assert.strictEqual(logs.status, 400);
+      assert.strictEqual((await call(`http://127.0.0.1:${plain.port}/api/state`, { headers: { 'X-SonoPrint-Token': plain.token } })).data.desktop, null);
+    } finally {
+      await plain.close();
+    }
+  } finally {
+    await srv.close();
+  }
+});

@@ -220,8 +220,11 @@ function uniqueName(dir, name) {
   }
 }
 
+// un file salvato da un editor (o da PowerShell) può cominciare con il BOM: per JSON.parse non è valido
+const stripBom = (text) => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+
 function readJson(p, def) {
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return def; }
+  try { return JSON.parse(stripBom(fs.readFileSync(p, 'utf8'))); } catch (_) { return def; }
 }
 
 /**
@@ -243,7 +246,7 @@ function readJsonSafe(p, def, { attempts = 15, waitMs = 200 } = {}) {
       continue;
     }
     try {
-      return JSON.parse(text);
+      return JSON.parse(stripBom(text));
     } catch (_) {
       try { fs.copyFileSync(p, `${p}.rovinato-${Date.now()}`); } catch (__) { /* copia facoltativa */ }
       return def;
