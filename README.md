@@ -53,6 +53,9 @@ Le stampanti USB ricevono la stampa riga per riga da SonoPrint, quindi SonoPrint
 
 - **Resta attivo in background quando chiudi la finestra** (acceso di serie): chiudendo la finestra SonoPrint resta fra le icone accanto all'orologio, continua a stampare e resta raggiungibile dalla rete. Clic sull'icona per riaprirlo, clic destro e **Esci** per chiuderlo del tutto (con una stampa USB in corso chiede conferma).
 - **Avvia SonoPrint quando accendi il computer**: parte nascosto all'accesso a Windows e collega da solo le stampanti con la connessione automatica. Su Mac parte e resta nel Dock.
+- **Priorità alta durante le stampe USB** (Windows, acceso di serie): mentre una stampante USB stampa, SonoPrint ha la priorità alta (non "tempo reale", che può bloccare mouse e tastiera), Windows non lo mette in modalità efficienza anche con la finestra nascosta e, con "Impedisci al computer di andare in sospensione", il computer resta sveglio fino alla fine. Finite le stampe torna tutto normale.
+
+Nessuna di queste impostazioni ferma i riavvii forzati di Windows Update: imposta l'**orario di attività** di Windows (Impostazioni, Windows Update, Opzioni avanzate) sulle ore in cui stampi, oppure sospendi gli aggiornamenti durante le stampe lunghe.
 
 **Desktop remoto**: uscire dall'account di Windows (Start, Esci) chiude tutti i programmi, anche quelli in background, e quindi ferma le stampe USB. Per lasciare una stampa in corso chiudi la finestra del Desktop remoto con la X: la sessione resta aperta. Se qualcuno prova a uscire dall'account o a spegnere mentre SonoPrint stampa, SonoPrint lo blocca e Windows mostra che SonoPrint sta stampando.
 
@@ -200,6 +203,7 @@ node scripts/build-assets.js    # copia icone, font e Three.js in src/web (dopo 
 ```
 src/
   main.js                 finestra Electron, icona accanto all'orologio, avvio con il computer, notifiche, registro
+  print-guard.js          priorità alta, niente modalità efficienza e computer sveglio durante le stampe USB
   updater.js              aggiornamenti automatici dalle Release di GitHub
   server/
     index.js              server HTTP + WebSocket (token per il PC, chiave per il telefono)

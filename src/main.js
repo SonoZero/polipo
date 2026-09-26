@@ -8,6 +8,7 @@ const path = require('path');
 const { app, BrowserWindow, Menu, Tray, Notification, dialog, shell, powerSaveBlocker, powerMonitor, session, nativeImage } = require('electron');
 const { startServer } = require('./server');
 const { Updater, fileLogger } = require('./updater');
+const { PrintGuard } = require('./print-guard');
 
 const ICON = path.join(__dirname, '..', 'build', 'icon.png');
 // su Mac chiudendo la finestra SonoPrint resta nel Dock (e le stampe USB continuano); si esce con Cmd+Q
@@ -22,6 +23,8 @@ let updater = null;
 let win = null;
 let tray = null;
 let sleepBlocker = null;
+// priorità alta, niente modalità efficienza e computer sveglio durante le stampe USB
+let guard = null;
 let quitting = false;
 // Windows sta chiudendo la sessione (uscita dall'account, spegnimento): niente conferme né background
 let sessionEnding = false;
@@ -106,7 +109,7 @@ async function start() {
   });
 
   server.events.on('printing-changed', onPrintingChanged);
-  server.manager.on('settings-changed', updateSleepBlocker);
+  server.manager.on('settings-changed', updatePrintProtection);
   let trayTimer = null;
   server.manager.on('printer-update', () => {
     if (trayTimer) return;
@@ -115,6 +118,7 @@ async function start() {
 
   applyLoginItem(server.manager.settings);
   watchProcesses();
+  guard = new PrintGuard(log);
   if (IS_WIN) createTray();
 
   // avviato con il computer: resta nascosto (su Windows accanto all'orologio, su Mac nel Dock)
@@ -272,7 +276,7 @@ function desktopInfo() {
       loginBlocked = IS_WIN ? (s.openAtLogin && s.executableWillLaunchAtLogin === false) : s.status === 'requires-approval';
     } catch (_) { /* ignora */ }
   }
-  return { tray: IS_WIN, loginItem: loginSupported(), loginBlocked, logs: true };
+  return { tray: IS_WIN, priority: IS_WIN, loginItem: loginSupported(), loginBlocked, logs: true };
 }
 
 /** La prima volta che la finestra si chiude restando in background, lo spiega con una notifica. */
@@ -330,7 +334,7 @@ function windowTitle() {
 
 let lastPrintsLogged = '';
 function onPrintingChanged() {
-  updateSleepBlocker();
+  updatePrintProtection();
   updateTray();
   if (win && !win.isDestroyed()) win.setTitle(windowTitle());
   const active = server.manager.activeLocalPrints().join(', ');
@@ -430,13 +434,17 @@ function origin() {
   return new URL(server.url).origin;
 }
 
-function updateSleepBlocker() {
-  const need = server && server.manager.settings.preventSleep && server.manager.activeLocalPrints().length > 0;
+/** Durante le stampe USB: niente sospensione del computer, priorità alta, niente modalità efficienza. */
+function updatePrintProtection() {
+  const s = server ? server.manager.settings : {};
+  const printing = !!server && server.manager.activeLocalPrints().length > 0;
+  const need = printing && s.preventSleep;
   if (need && sleepBlocker === null) sleepBlocker = powerSaveBlocker.start('prevent-app-suspension');
   if (!need && sleepBlocker !== null) {
     powerSaveBlocker.stop(sleepBlocker);
     sleepBlocker = null;
   }
+  if (guard) guard.update({ printing, highPriority: s.highPriority, preventSleep: s.preventSleep });
 }
 
 app.on('window-all-closed', () => { if (!IS_MAC) app.quit(); });
@@ -459,6 +467,7 @@ app.on('before-quit', (e) => {
   // una stampante che non risponde non deve bloccare la chiusura (e quindi l'installazione di un aggiornamento)
   const timeout = new Promise((resolve) => setTimeout(resolve, 4000));
   Promise.race([server.close().catch(() => {}), timeout]).finally(() => {
+    if (guard) guard.stop();
     if (tray) tray.destroy();
     app.quit();
   });

@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS = {
   developer: false, // modalità sviluppatore: mostra l'accesso dal telefono
   startAtLogin: false, // app desktop: si avvia (nascosta) quando si accede al computer
   runInBackground: true, // app desktop: chiudendo la finestra resta attiva accanto all'orologio
+  highPriority: true, // app desktop (Windows): priorità alta e niente modalità efficienza durante le stampe USB
 };
 
 const DEFAULT_PORT = DEFAULT_SETTINGS.port;
@@ -338,6 +339,7 @@ class PrinterManager extends EventEmitter {
     next.developer = !!next.developer;
     next.startAtLogin = !!next.startAtLogin;
     next.runInBackground = !!next.runInBackground;
+    next.highPriority = !!next.highPriority;
     // senza modalità sviluppatore l'accesso dal telefono resta spento
     if (!next.developer) next.remote = { ...next.remote, enabled: false };
     this.settings = next;
@@ -359,7 +361,15 @@ class PrinterManager extends EventEmitter {
 
   _makePrinter(cfg) {
     const p = createPrinter(cfg, { files: this.files, ...(this.printerDeps || {}) });
-    p.on('update', () => this.emit('printer-update', p));
+    // "in stampa" cambia anche dopo la fine del lavoro (annullamento, disconnessione): si guarda lo stato
+    let wasPrinting = false;
+    p.on('update', () => {
+      this.emit('printer-update', p);
+      if (p.isPrinting !== wasPrinting) {
+        wasPrinting = p.isPrinting;
+        this.emit('printing-changed');
+      }
+    });
     p.on('temp', (sample) => this.emit('temp', p.id, sample));
     p.on('log', (entry) => this.emit('log', p.id, entry));
     p.on('notify', (n) => this.emit('notify', { ...n, printerId: p.id }));

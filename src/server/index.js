@@ -333,7 +333,7 @@ async function startServer(options = {}) {
   route('PUT', /^\/api\/settings$/, async (req, m, res, auth) => {
     const body = await readJsonBody(req);
     // porta, accesso dalla rete, accesso remoto e modalità sviluppatore si cambiano solo dal computer
-    if (!auth.local) { delete body.port; delete body.remote; delete body.developer; delete body.lan; delete body.startAtLogin; delete body.runInBackground; }
+    if (!auth.local) { delete body.port; delete body.remote; delete body.developer; delete body.lan; delete body.startAtLogin; delete body.runInBackground; delete body.highPriority; }
     if ('port' in body) {
       const port = validPort(body.port);
       if (!port) throw badRequest('La porta deve essere un numero tra 1024 e 65535.');

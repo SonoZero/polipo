@@ -537,10 +537,12 @@ test('avvio con il computer e background: impostazioni applicate dall\'app deskt
     assert.deepStrictEqual(state.desktop, desktop.info());
     assert.strictEqual(state.settings.startAtLogin, false);
     assert.strictEqual(state.settings.runInBackground, true);
-    const r = await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { startAtLogin: true, runInBackground: false } });
+    assert.strictEqual(state.settings.highPriority, true);
+    const r = await call(`${base}/api/settings`, { method: 'PUT', headers: T, body: { startAtLogin: true, runInBackground: false, highPriority: false } });
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.data.startAtLogin, true);
     assert.strictEqual(r.data.runInBackground, false);
+    assert.strictEqual(r.data.highPriority, false);
     assert.deepStrictEqual(applied, [true]);
     // senza app desktop il registro non c'è
     const plain = await startServer({ dataDir: tmpDir(), port: 0 });
@@ -553,5 +555,28 @@ test('avvio con il computer e background: impostazioni applicate dall\'app deskt
     }
   } finally {
     await srv.close();
+  }
+});
+
+test('dopo l\'annullamento SonoPrint sa che non stampa più (sospensione e priorità si tolgono)', async () => {
+  const { PrinterManager } = require('../src/server/manager');
+  const { Readable } = require('stream');
+  const m = new PrinterManager(tmpDir());
+  await m.init();
+  const p = m.add({ type: 'usb', name: 'Virtuale', port: 'VIRTUAL', virtualSpeed: 1 });
+  const lines = ['G28'];
+  for (let i = 0; i < 4000; i++) lines.push(`G1 X${i % 100} Y${i % 50} E0.1 F1800`);
+  const name = await m.files.add('lungo.gcode', Readable.from([lines.join('\n') + '\n']));
+  const seen = [];
+  m.on('printing-changed', () => seen.push(m.activeLocalPrints().length));
+  try {
+    await m.connect(p.id);
+    await waitFor(() => p.state === 'operational', 10000, 'stampante pronta');
+    m.startPrint(p.id, name);
+    await waitFor(() => seen.includes(1), 5000, 'stampa in corso');
+    p.cancel();
+    await waitFor(() => seen[seen.length - 1] === 0, 5000, 'nessuna stampa dopo l\'annullamento');
+  } finally {
+    await m.shutdown();
   }
 });

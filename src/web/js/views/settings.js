@@ -72,6 +72,9 @@ export function mountSettings(container) {
       d.tray ? toggle('Resta attivo in background quando chiudi la finestra', st.runInBackground, (v) => save({ runInBackground: v },
         v ? 'SonoPrint resterà attivo in background' : 'Chiudendo la finestra SonoPrint si chiuderà')) : null,
       d.tray ? h('div', { class: 'hint' }, 'Chiudendo la finestra SonoPrint continua a stampare con le stampanti USB e resta raggiungibile dalla rete. Per chiuderlo del tutto fai clic con il tasto destro sull\'icona accanto all\'orologio e scegli Esci.') : null,
+      d.priority ? toggle('Priorità alta durante le stampe USB', st.highPriority, (v) => save({ highPriority: v },
+        v ? 'Priorità alta durante le stampe USB' : 'Priorità normale durante le stampe USB')) : null,
+      d.priority ? h('div', { class: 'hint' }, 'Windows dà a SonoPrint la precedenza sugli altri programmi e non lo mette in modalità efficienza, anche con la finestra nascosta: l\'invio delle righe alla stampante non rallenta. Con "Impedisci al computer di andare in sospensione" acceso, il computer resta sveglio fino alla fine della stampa.') : null,
     ].filter(Boolean));
   }
   renderStartup();
@@ -134,7 +137,7 @@ export function mountSettings(container) {
         class: 'btn primary',
         onclick: (e) => run(() => api('PUT', '/settings', { presets: s.presets, notifications: s.notifications, preventSleep: s.preventSleep }), { button: e.currentTarget, success: 'Impostazioni salvate' }),
       }, icon('check'), 'Salva impostazioni')),
-      local && store.desktop ? card('Avvio e background', startupBox) : null,
+      local && store.desktop ? card(store.desktop.priority ? 'Avvio, background e priorità' : 'Avvio e background', startupBox) : null,
       local ? card('Rete', portSettings.el) : null,
       local ? card('Accesso dalla rete', lanSettings.el) : card('Accesso dalla rete',
         h('div', { class: 'dim' }, 'Sei collegato a SonoPrint dalla rete, con la password. Porta, firmware da file e aggiornamento di SonoPrint si gestiscono dal computer su cui gira.'),
